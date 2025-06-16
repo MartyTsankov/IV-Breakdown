@@ -1,0 +1,377 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from lmfit import Model
+from pathlib import Path
+from lmfit.models import ConstantModel
+
+
+# --- 1. a plain Gaussian model ---
+def gaussian(x, amp, cen, sigma):
+    """Amp = peak height, cen = centre, sigma = std-dev."""
+    return amp * np.exp(-((x - cen) ** 2) / (2 * sigma**2))
+
+
+gmodel = Model(gaussian)
+
+
+def piecewise_log(V, V0, b, A, K):
+    """
+    Flat baseline (≈b) until V≈V0, then logarithmic:
+
+        y(V) = b                         ,  V < V0
+        y(V) = b + A*log1p((V-V0)/K)     ,  V ≥ V0
+
+    • b   : baseline current (must stay >0 for log-y plots)
+    • V0  : knee voltage you want to extract
+    • A   : scale (roughly the current rise per log decade)
+    • K   : horizontal stretch;  ~1 V is usually fine as a starting guess
+    """
+    out = np.full_like(V, b, dtype=float)
+    mask = V >= V0
+    out[mask] = b + A * np.log1p((V[mask] - V0) / K)  # log1p keeps V=V0 safe
+    return out
+
+
+def expo_then_log(V, V0, b, A, K):
+    """
+    • V < V0 : baseline b
+    • V ≥ V0 : y = b * (1 + (V - V0)/K)**A
+
+      - initial slope on log-y axis  =  A/K
+      - long-range growth            ~  A*log(V)
+    """
+    out = np.full_like(V, b, dtype=float)
+    mask = V >= V0
+    out[mask] = b * np.power((V[mask] - V0) / K + 1.0, A)
+    return out
+
+
+def sys_unc(value, is_current):
+    if is_current:
+        i = value
+        if i <= 2e-9:
+            return [0.01 * i, 2e-12]
+        elif i <= 2e-8:
+            return [0.004 * i, 2e-12]
+        elif i <= 2e-7:
+            return [0.003 * i, 2e-10]
+        elif i <= 2e-6:
+            return [0.002 * i, 2e-10]
+        elif i <= 2e-5:
+            return [0.001 * i, 2e-8]
+        elif i <= 2e-4:
+            return [0.001 * i, 2e-8]
+        else:
+            return [0.001 * i, 2e-6]
+    else:  # voltage branch
+        v = value
+        return [0.15 * v, 5e-3]
+
+
+def data(p, fix):
+    labels = ["Date", "Time", "I_1", "I_2", "Voltage", "IDK"]
+    filename = Path(p).stem
+    basename = filename.split("-")
+    bias = basename[1].strip("V")
+    bias = float(bias)
+
+    DF1 = pd.read_csv(p, names=labels, sep="\\s+")
+
+    numMeasureUp = len(
+        np.where(DF1["Voltage"][0:100] == 0.1)[0]
+    )  # number of measurements per voltage step; [0:100] is so, if there are 0.1 values in the ramp-down, they aren't included
+    vmax = np.argmax(
+        DF1["Voltage"]
+    )  # len(DF1['Voltage'])# #max voltage value. everything after this must be discarded; not relevant to analysis.
+    # num_rampUp = int((upTo / 0.1) * numMeasureUp)
+    DF1 = DF1[:vmax]  # discarding ramp-down lines.
+    rem = len(DF1) % 10
+    if rem:
+        DF1 = DF1[:-rem]
+    DF1["Voltage"] += bias
+
+    num_points = int(vmax / numMeasureUp)
+    V = np.array(DF1["Voltage"]).reshape((num_points, numMeasureUp))
+    I = np.array(DF1["I_1"]).reshape((num_points, numMeasureUp))
+
+    ydata = np.mean(I, axis=1)
+
+    for i in range(0, len(ydata)):
+        if ydata[i] > 10**10:
+            for j in range(len(I[i])):
+                if I[i][j] > 10**10:
+                    I[i][j] = I[i][j - 1]
+
+    V = V[fix:]
+    I = I[fix:]
+    num_points -= fix
+
+    return V, I, numMeasureUp, num_points, basename
+
+
+def plot_hist(hist_list, max_current, alpha=0.5):
+    bins = 27
+    for p, fix in hist_list:
+        br_index = plot_combined(p, fix, False)
+        V, I, numMeasureUp, num_points, basename = data(p, fix)
+        if br_index is not None:
+            I = I[: br_index - 1]
+            currents = []
+            for i in range(len(I)):
+                for j in range(len(I[i])):
+                    currents.append((I[i][j]))
+
+            currents = I[:br_index].ravel()
+        else:
+            currents = I
+        currents = currents[currents <= max_current]
+
+        counts, bins = np.histogram(currents, bins=27)  # Generate histogram data
+
+        bin_midpoints = (bins[:-1] + bins[1:]) / 2  # Calculate bin midpoints
+        mean = np.sum(bin_midpoints * counts) / np.sum(counts)  # Calculate the mean
+        # --- turn the histogram into x–y points for fitting ---
+        centers = 0.5 * (bins[:-1] + bins[1:])  # x-values
+        mask = counts > 0  # skip empty bins
+
+        # --- define & fit a Gaussian with lmfit ---
+        from lmfit import Model
+
+        def gaussian(x, amp, cen, sigma):
+            return amp * np.exp(-((x - cen) ** 2) / (2 * sigma**2))
+
+        gmod = Model(gaussian)
+        params = gmod.make_params(
+            amp=counts.max(), cen=centers[counts.argmax()], sigma=np.std(currents)
+        )
+
+        result = gmod.fit(
+            counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
+        )  # 1/√N Poisson weights
+
+        # Optional: plot the histogram
+
+    plt.show()
+
+
+def plot_hist_check(hist_list, max_current, alpha=0.5):
+    fs = 33
+    for p, fix in hist_list:
+        br_index = plot_combined(p, fix, False)
+        V, I, numMeasureUp, num_points, basename = data(p, fix)
+
+        currents = I[:br_index].ravel()
+        currents = currents[currents <= max_current]
+        currents *= 1e6
+        counts, bins = np.histogram(currents, bins=27)
+
+        # ----- Gaussian fit -----
+        centers = 0.5 * (bins[:-1] + bins[1:])
+        mask = counts > 0  # ignore empty bins
+
+        gmod = Model(gaussian)
+        params = gmod.make_params(
+            amp=counts.max(), cen=centers[counts.argmax()], sigma=np.std(currents)
+        )
+        result = gmod.fit(
+            counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
+        )
+
+        # ----- plot -----
+        bin_width = bins[1] - bins[0]
+        plt.bar(
+            centers,
+            counts,
+            width=bin_width,
+            alpha=alpha,
+            label=f"{basename[0]} ({basename[4]}) data",
+        )
+
+        x_fit = np.linspace(centers.min(), centers.max(), 400)
+        plt.plot(
+            x_fit,
+            result.eval(x=x_fit),
+            "-",
+            lw=2,
+            label=(
+                f"{basename[0]} ({basename[4]}) fit \n Gaussian: "
+                f"μ={result.params['cen'].value:.3g}±{result.params['cen'].stderr:.2g}\n"
+                f"σ={result.params['sigma'].value:.3g}±{result.params['sigma'].stderr:.2g}"
+            ),
+        )
+
+        plt.legend(loc="upper left", fontsize=fs - 17)
+
+    plt.xlabel("Current (μ Amps)", fontsize=fs)
+    plt.ylabel("Counts", fontsize=fs)
+    plt.xticks(fontsize=fs)
+    plt.yticks(fontsize=fs)
+    plt.grid()
+    plt.show()
+
+
+def plot_combined(p, fix, show=True, initial_window_size=25, threshold=1):
+    V, I, N, num_points, basename = data(p, fix)
+    unc_list = []
+    for row in I:
+        unc_row = [sys_unc(i, is_current=True) for i in row]
+        unc_list.append(unc_row)
+
+    vunc_list = []
+    for row in V:
+        vunc_row = [sys_unc(v, is_current=False) for v in row]
+        vunc_list.append(vunc_row)
+
+    unc_arr = np.asarray(unc_list)  # (rows, 10, 2)
+    gain_u = unc_arr[..., 0]  # (rows, 10)
+    offset_u = unc_arr[..., 1]
+
+    # rand_u = np.std(I, axis=1, ddof=1) / np.sqrt(N)
+    rand_var = np.var(I, axis=1, ddof=1) / N  # uncorrelated
+    gain_var = (np.sum(gain_u, axis=1) / N) ** 2  # fully correlated
+    offset_var = (np.sum(offset_u, axis=1) / N) ** 2  # fully correlated
+    yerr = np.sqrt(rand_var + gain_var + offset_var)
+
+    xdata = np.mean(V, axis=1)
+    step = np.diff(xdata).mean().round(3)
+    ydata = np.mean(I, axis=1)
+    y_abs_data = np.abs(ydata)
+
+    pw_model = Model(expo_then_log)
+    # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
+
+    # 1. First, establish the baseline noise level from the initial flat part of the data.
+    horiz_model = ConstantModel()
+    baseline_fit = horiz_model.fit(
+        y_abs_data[:initial_window_size],
+        x=xdata[:initial_window_size],
+        weights=1.0 / yerr[:initial_window_size],
+    )
+
+    baseline_guess = baseline_fit.params["c"].value
+    # 2. Now, find the point where the data significantly deviates from this baseline.
+    chisq_reduced = np.full_like(y_abs_data, np.nan)
+    for i in range(initial_window_size, len(y_abs_data)):
+        # Calculate chi-squared for all points up to 'i' against the constant baseline model
+        resid = y_abs_data[: i + 1] - baseline_guess
+        chisq = np.sum((resid / yerr[: i + 1]) ** 2)
+        dof = i + 1  # Degrees of freedom
+        chisq_reduced[i] = chisq / dof if dof > 0 else 0
+
+    # 3. The "knee" is the point just before the chi-squared value crosses the threshold.
+    # We find the first index where the condition is met.
+    knee_candidates = np.where(chisq_reduced >= threshold)[0]
+    if knee_candidates.size > 0:
+        knee_row = knee_candidates[0]
+    else:
+        # Fallback: if threshold is never crossed, guess the midpoint.
+        knee_row = len(xdata) // 2
+        print("Warning: Chi-squared threshold not crossed. Guessing midpoint for V0.")
+
+    baseline_fit2 = horiz_model.fit(
+        y_abs_data[:knee_row],
+        x=xdata[:knee_row],
+        weights=1.0 / yerr[:knee_row],
+    )
+    baseline_guess = baseline_fit2.params["c"].value
+    weights = 1.0 / yerr**2
+    V0_guess = xdata[knee_row]
+    print(V0_guess)
+    K_guess = 1.0
+    A_guess = (np.log(y_abs_data[knee_row - 1]) - np.log(baseline_guess)) / (
+        (xdata[knee_row - 1] - V0_guess) / K_guess
+    )
+    # Create the parameter set with our improved guesses.
+    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess, K=K_guess)
+
+    # --- CHANGED: More flexible parameter bounds ---
+    # Allow the baseline to be negative or positive, as noise can cause this.
+    params1["b"].set(value=baseline_guess, vary=False, min=1e-13)
+    # dI must be positive.
+    params1["V0"].set(min=xdata.min(), max=xdata.max())
+    params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
+    params1["K"].set(min=1e-3, max=20)
+
+    # Then the fit is performed on the *entire* dataset:
+    fit1 = pw_model.fit(
+        y_abs_data, params1, V=xdata, weights=weights, method="leastsq", max_nfev=100000
+    )
+
+    params2 = fit1.params
+    params2["b"].set(vary=True)
+    fit = pw_model.fit(y_abs_data, params2, V=xdata, weights=weights, method="leastsq")
+
+    print(fit.fit_report(min_correl=0.5))
+
+    # Extract the final breakdown voltage and its uncertainty from the fit
+    V0_val = fit.params["V0"].value
+    V0_err = fit.params["V0"].stderr if fit.params["V0"].stderr is not None else 0.0
+
+    # Create figure with adjusted layout
+    fig, ax1 = plt.subplots()
+    fs = 33
+
+    # IV points with proper σ
+    ax1.errorbar(
+        xdata,
+        ydata,
+        yerr=yerr,
+        fmt="o",
+        ms=5,
+        lw=1,
+        label=Path(p).stem,
+        color="#1f77b4",
+        zorder=3,
+    )
+    ax1.set_yscale("log")
+    ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
+    ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
+    ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
+    ax1.tick_params(axis="x", labelsize=fs)
+    ax1.set_ylim(1e-11, 1e-3)
+    ax1.grid(True)
+
+    # Generate a dense set of x-values for a smooth plot of the fit
+    v_dense = np.linspace(xdata.min(), xdata.max(), 400)
+    # The line below was causing the artificial vertical line. We plot the real fit now.
+    ax1.plot(
+        v_dense,
+        fit.eval(V=v_dense),
+        "-",
+        lw=2.5,
+        color="gray",
+        label=f"Logistic Fit (V₀ = {V0_val:.2f} ± {V0_err:.2f} V)",
+        zorder=4,
+    )
+    ax1.axvline(
+        V0_val,
+        ls="--",
+        lw=2,
+        color="darkred",
+        label=f"Breakdown ({V0_val:.2f} ± {V0_err:.2f} V)",
+    )
+    # Final formatting
+    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
+
+    # Combined legend with improved positioning
+    ax1.legend(loc="upper left", fontsize=fs - 15)
+    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
+    plt.tight_layout()
+    plt.show()
+
+
+hist = input("Hist? (y/N)").lower() == "y"
+
+if hist:
+    hist_list = []
+    for i in range(int(input("How many IVs? "))):
+        p = str(input("Enter file path: "))
+        fix = int(input("Enter fix: "))
+        hist_list.append((p, fix))
+
+    plot_hist_check(hist_list, 5e-7)
+else:
+    p = str(input("Enter file path: "))
+    fix = int(input("Enter fix: "))
+    plot_combined(p, fix)
