@@ -60,6 +60,33 @@ def data(p, fix):
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
 
+    V_check = np.array(DF1["Voltage"])
+    I_check = np.array(DF1["I_1"])
+
+    V = []
+    I = []
+    count = 0
+    for i in range(len(I_check)):
+        if I_check[i] != 0:
+            V.append(V_check[i])
+            I.append(I_check[i])
+        else:
+            count += 1
+
+    V_shape = []
+    V_check = []
+    I_shape = []
+    I_check = []
+    for i in range(len(V) - 1):
+        if V[i] == V[i + 1]:
+            V_check.append(V[i])
+        else:
+            V_shape.append(V_check)
+            I_shape.append(I_check)
+            V_check = []
+            I_check = []
+    for i in V_shape:
+        print(len(i))
     numMeasureUp = len(
         np.where(DF1["Voltage"][0:100] == 0.1)[0]
     )  # number of measurements per voltage step; [0:100] is so, if there are 0.1 values in the ramp-down, they aren't included
