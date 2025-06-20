@@ -346,7 +346,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         "-",
         lw=2.5,
         color="gray",
-        label=f"Logistic Fit (V₀ = {V0_val:.2f} ± {V0_err:.2f} V)",
+        label=f"Piecwise Fit",
         zorder=4,
     )
     ax1.axvline(
@@ -354,11 +354,8 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         ls="--",
         lw=2,
         color="darkred",
-        label=f"Breakdown ({V0_val:.2f} ± {V0_err:.2f} V)",
+        label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
     )
-    # Final formatting
-    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
-
     # Combined legend with improved positioning
     ax1.legend(loc="upper left", fontsize=fs - 15)
     plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
