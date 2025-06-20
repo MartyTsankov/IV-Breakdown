@@ -60,51 +60,39 @@ def data(p, fix):
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
 
-    V_check = np.array(DF1["Voltage"])
-    I_check = np.array(DF1["I_1"])
-
-    V = []
     I = []
-    count = 0
-    for i in range(len(I_check)):
-        if I_check[i] != 0:
-            V.append(V_check[i])
-            I.append(I_check[i])
-        else:
-            count += 1
+    V = []
+
+    for i, row in DF1.iterrows():
+        if row.iloc[2] != 0:
+            I.append(row.iloc[2])
+            V.append(row.dropna().iloc[-1])
+
+    V_max = np.argmax(V)
+    V_up = np.asarray(V[fix * 10 : V_max + 1])
+    V_up += bias
+    V_down = np.asarray(V[:V_max:])
+    V_down += bias
+    I_up = np.asarray(I[fix * 10 : V_max + 1])
+    I_down = np.asarray(I[V_max:])
 
     V_shape = []
     V_check = []
     I_shape = []
     I_check = []
-    for i in range(len(V) - 1):
-        if V[i] == V[i + 1]:
-            V_check.append(V[i])
+    for i in range(len(V_up) - 1):
+        if V_up[i] == V_up[i + 1]:
+            V_check.append(V_up[i])
+            I_check.append(I_up[i])
         else:
+            V_check.append(V_up[i])
+            I_check.append(I_up[i])
             V_shape.append(V_check)
             I_shape.append(I_check)
             V_check = []
             I_check = []
-    for i in V_shape:
-        print(len(i))
-    numMeasureUp = len(
-        np.where(DF1["Voltage"][0:100] == 0.1)[0]
-    )  # number of measurements per voltage step; [0:100] is so, if there are 0.1 values in the ramp-down, they aren't included
-    vmax = np.argmax(
-        DF1["Voltage"]
-    )  # len(DF1['Voltage'])# #max voltage value. everything after this must be discarded; not relevant to analysis.
-    # num_rampUp = int((upTo / 0.1) * numMeasureUp)
-    DF1 = DF1[:vmax]  # discarding ramp-down lines.
-    rem = len(DF1) % 10
-    if rem:
-        DF1 = DF1[:-rem]
-    DF1["Voltage"] += bias
 
-    num_points = int(vmax / numMeasureUp)
-    V = np.array(DF1["Voltage"]).reshape((num_points, numMeasureUp))
-    I = np.array(DF1["I_1"]).reshape((num_points, numMeasureUp))
-
-    ydata = np.mean(I, axis=1)
+    ydata = np.array([np.mean(row) for row in I_shape])
 
     for i in range(0, len(ydata)):
         if ydata[i] > 10**10:
@@ -112,18 +100,16 @@ def data(p, fix):
                 if I[i][j] > 10**10:
                     I[i][j] = I[i][j - 1]
 
-    V = V[fix:]
-    I = I[fix:]
-    num_points -= fix
+    num_points = len(V_up)
 
-    return V, I, numMeasureUp, num_points, basename
+    return V_shape, I_shape, num_points, basename
 
 
 def plot_hist(hist_list, max_current, alpha=0.5):
     bins = 27
     for p, fix in hist_list:
         br_index = plot_breakdown(p, fix, False)
-        V, I, numMeasureUp, num_points, basename = data(p, fix)
+        V, I, num_points, basename = data(p, fix)
         if br_index is not None:
             I = I[: br_index - 1]
             currents = []
@@ -168,7 +154,7 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
     fs = 33
     for p, fix in hist_list:
         br_index = plot_breakdown(p, fix, False)
-        V, I, numMeasureUp, num_points, basename = data(p, fix)
+        V, I, num_points, basename = data(p, fix)
 
         currents = I[:br_index].ravel()
         currents = currents[currents <= max_current]
@@ -221,30 +207,39 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
 
 
 def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
-    V, I, N, num_points, basename = data(p, fix)
+    V, I, num_points, basename = data(p, fix)
     unc_list = []
+    N = []
     for row in I:
-        unc_row = [sys_unc(i, is_current=True) for i in row]
+        unc_row = [np.asarray(sys_unc(i, is_current=True)) for i in row]
         unc_list.append(unc_row)
+        N.append(len(row))
 
     vunc_list = []
     for row in V:
-        vunc_row = [sys_unc(v, is_current=False) for v in row]
+        vunc_row = [np.asarray(sys_unc(v, is_current=False)) for v in row]
         vunc_list.append(vunc_row)
+    N = np.asarray(N)
 
-    unc_arr = np.asarray(unc_list)  # (rows, 10, 2)
-    gain_u = unc_arr[..., 0]  # (rows, 10)
-    offset_u = unc_arr[..., 1]
+    gain_var_list = []
+    offset_var_list = []
 
+    for i, row in enumerate(I):
+        unc_row = [sys_unc(val, is_current=True) for val in row]
+        sum_gain_u = sum(u[0] for u in unc_row)
+        sum_offset_u = sum(u[1] for u in unc_row)
+        gain_var_list.append((sum_gain_u / N[i]) ** 2)
+        offset_var_list.append((sum_offset_u / N[i]) ** 2)
     # rand_u = np.std(I, axis=1, ddof=1) / np.sqrt(N)
-    rand_var = np.var(I, axis=1, ddof=1) / N  # uncorrelated
-    gain_var = (np.sum(gain_u, axis=1) / N) ** 2  # fully correlated
-    offset_var = (np.sum(offset_u, axis=1) / N) ** 2  # fully correlated
+
+    rand_var = np.array([np.var(np.asarray(row), ddof=1) / len(row) for row in I])
+    gain_var = np.array(gain_var_list)
+    offset_var = np.array(offset_var_list)
     yerr = np.sqrt(rand_var + gain_var + offset_var)
 
     # step = np.diff(xdata).mean().round(3)
-    xdata = np.mean(V, axis=1)
-    ydata = np.mean(I, axis=1)
+    xdata = np.array([row[0] for row in V])
+    ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
     pw_model = Model(expo_then_log)
