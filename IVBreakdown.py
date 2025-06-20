@@ -309,14 +309,28 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
 
     print(fit.fit_report(min_correl=0.5))
 
-    # Extract the final breakdown voltage and its uncertainty from the fit
-    V0_val = fit.params["V0"].value
-    V0_err = fit.params["V0"].stderr if fit.params["V0"].stderr is not None else 0.0
+    params = fit.params
+    V0_val = params["V0"].value
+    V0_err = params["V0"].stderr if params["V0"].stderr is not None else 0.0
+    b_val = params["b"].value
+    b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
+    A_val = params["A"].value
+    A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
+    K_val = params["K"].value
+    K_err = params["K"].stderr if params["K"].stderr is not None else 0.0
+    red_chisq = fit.redchi
 
     # Create figure with adjusted layout
     fig, ax1 = plt.subplots()
     fs = 33
 
+    fit_legend_label = (
+        f"Fit Model:\n"
+        f"b = {b_val:.2g} ± {b_err:.1g}\n"
+        f"A = {A_val:.2g} ± {A_err:.1g}\n"
+        f"K = {K_val:.2g} ± {K_err:.1g}\n"
+        f"$\\chi^2_\\nu$ = {red_chisq:.2g}"
+    )
     # IV points with proper σ
     ax1.errorbar(
         xdata,
@@ -346,7 +360,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         "-",
         lw=2.5,
         color="gray",
-        label=f"Piecwise Fit",
+        label=fit_legend_label,
         zorder=4,
     )
     ax1.axvline(
