@@ -15,7 +15,7 @@ def gaussian(x, amp, cen, sigma):
 gmodel = Model(gaussian)
 
 
-def expo_then_log(V, V0, b, A, K):
+def expo_then_log(V, V0, b, A):
     """
     • V < V0 : baseline b
     • V ≥ V0 : y = b * (1 + (V - V0)/K)**A
@@ -25,8 +25,18 @@ def expo_then_log(V, V0, b, A, K):
     """
     out = np.full_like(V, b, dtype=float)
     mask = V >= V0
-    out[mask] = b * np.power((V[mask] - V0) / K + 1.0, A)
+    out[mask] = b * np.power((V[mask] - V0), A)
     return out
+
+
+def log(V, V0, b, A):
+    ret_list = []
+    for i in V:
+        if i > V0:
+            ret_list.append(b * np.power((i - V0), A))
+        else:
+            ret_list.append(0)
+    return np.asarray(ret_list)
 
 
 def sys_unc(value, is_current):
@@ -96,9 +106,9 @@ def data(p, fix):
 
     for i in range(0, len(ydata)):
         if ydata[i] > 10**10:
-            for j in range(len(I[i])):
-                if I[i][j] > 10**10:
-                    I[i][j] = I[i][j - 1]
+            for j in range(len(I_shape[i])):
+                if I_shape[i][j] > 10**10:
+                    I_shape[i][j] = I_shape[i][j - 1]
 
     num_points = len(V_up)
 
@@ -242,8 +252,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
-    pw_model = Model(expo_then_log)
-    # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
+    pw_model = Model(log)
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
     horiz_model = ConstantModel()
@@ -280,32 +289,52 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / yerr**2
+    weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
-    K_guess = 1.0
-    A_guess = (np.log(y_abs_data[br_row - 1]) - np.log(baseline_guess)) / (
-        (xdata[br_row - 1] - V0_guess) / K_guess
+    A_guess = (np.log(y_abs_data[i]) - np.log(baseline_guess)) / np.log(
+        xdata[i] - V0_guess
     )
+
     # Create the parameter set with our improved guesses.
-    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess, K=K_guess)
+    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
 
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
-    params1["b"].set(value=baseline_guess, vary=False, min=1e-13)
+    params1["b"].set(value=baseline_guess, vary=True, min=1e-13)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
-    params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
-    params1["K"].set(min=1e-3, max=20)
+    params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
+
+    V0_val = V0_guess
+    rang = V0_val + 4.5
+    xrange = []
+    yrange = []
+    wrange = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
 
     # Then the fit is performed on the *entire* dataset:
     fit1 = pw_model.fit(
-        y_abs_data, params1, V=xdata, weights=weights, method="leastsq", max_nfev=100000
+        yrange, params1, V=xrange, weights=wrange, method="leastsq", max_nfev=100000
     )
 
+    V0_val = fit1.params["V0"].value
+    rang = V0_val + 3.5
+    xrange = []
+    yrange = []
+    wrange = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
     params2 = fit1.params
     params2["b"].set(vary=True)
-    fit = pw_model.fit(y_abs_data, params2, V=xdata, weights=weights, method="leastsq")
+    fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
     print(fit.fit_report(min_correl=0.5))
 
@@ -316,8 +345,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
     A_val = params["A"].value
     A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
-    K_val = params["K"].value
-    K_err = params["K"].stderr if params["K"].stderr is not None else 0.0
     red_chisq = fit.redchi
 
     # Create figure with adjusted layout
@@ -328,7 +355,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         f"Fit Model:\n"
         f"b = {b_val:.2g} ± {b_err:.1g}\n"
         f"A = {A_val:.2g} ± {A_err:.1g}\n"
-        f"K = {K_val:.2g} ± {K_err:.1g}\n"
         f"$\\chi^2_\\nu$ = {red_chisq:.2g}"
     )
     # IV points with proper σ
@@ -352,11 +378,15 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ax1.grid(True)
 
     # Generate a dense set of x-values for a smooth plot of the fit
-    v_dense = np.linspace(xdata.min(), xdata.max(), 400)
+    v_dense = np.linspace(xdata.min(), xdata.max(), 1000)
     # The line below was causing the artificial vertical line. We plot the real fit now.
+    v_plot = []
+    for i in v_dense:
+        if i < V0_val + 3.5:
+            v_plot.append(i)
     ax1.plot(
-        v_dense,
-        fit.eval(V=v_dense),
+        v_plot,
+        fit.eval(V=v_plot),
         "-",
         lw=2.5,
         color="gray",
