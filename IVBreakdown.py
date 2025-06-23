@@ -30,7 +30,7 @@ def expo_then_log(V, V0, b, A, K):
 
 
 def log(V, V0, b, A, K):
-    return np.log(expo_then_log(V, V0, b, A, K) + 1e-20)
+    return np.log10(expo_then_log(V, V0, b, A, K) + 1e-20)
 
 
 def sys_unc(value, is_current):
@@ -100,9 +100,9 @@ def data(p, fix):
 
     for i in range(0, len(ydata)):
         if ydata[i] > 10**10:
-            for j in range(len(I[i])):
-                if I[i][j] > 10**10:
-                    I[i][j] = I[i][j - 1]
+            for j in range(len(I_shape[i])):
+                if I_shape[i][j] > 10**10:
+                    I_shape[i][j] = I_shape[i][j - 1]
 
     num_points = len(V_up)
 
@@ -246,8 +246,8 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
-    logy = np.log(y_abs_data)
-    logyerr = yerr / ydata
+    logy = np.log10(y_abs_data)
+    logyerr = yerr / (y_abs_data * np.log(10.0))
 
     pw_model = Model(log)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
