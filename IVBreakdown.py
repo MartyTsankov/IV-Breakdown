@@ -29,6 +29,10 @@ def expo_then_log(V, V0, b, A, K):
     return out
 
 
+def log(V, V0, b, A, K):
+    return np.log(expo_then_log(V, V0, b, A, K) + 1e-20)
+
+
 def sys_unc(value, is_current):
     if is_current:
         i = value
@@ -242,7 +246,10 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
-    pw_model = Model(expo_then_log)
+    logy = np.log(y_abs_data)
+    logyerr = yerr / ydata
+
+    pw_model = Model(log)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
@@ -280,13 +287,11 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / yerr**2
+    weights = 1.0 / (logyerr**2)
     V0_guess = xdata[br_row]
     print(V0_guess)
     K_guess = 1.0
-    A_guess = (np.log(y_abs_data[br_row - 1]) - np.log(baseline_guess)) / (
-        (xdata[br_row - 1] - V0_guess) / K_guess
-    )
+    A_guess = 1.0
     # Create the parameter set with our improved guesses.
     params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess, K=K_guess)
 
@@ -300,12 +305,12 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
 
     # Then the fit is performed on the *entire* dataset:
     fit1 = pw_model.fit(
-        y_abs_data, params1, V=xdata, weights=weights, method="leastsq", max_nfev=100000
+        logy, params1, V=xdata, weights=weights, method="leastsq", max_nfev=100000
     )
 
     params2 = fit1.params
-    params2["b"].set(vary=True)
-    fit = pw_model.fit(y_abs_data, params2, V=xdata, weights=weights, method="leastsq")
+    params2["b"].set(vary=False)
+    fit = pw_model.fit(logy, params2, V=xdata, weights=weights, method="leastsq")
 
     print(fit.fit_report(min_correl=0.5))
 
@@ -352,11 +357,18 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ax1.grid(True)
 
     # Generate a dense set of x-values for a smooth plot of the fit
-    v_dense = np.linspace(xdata.min(), xdata.max(), 400)
+    v_dense = np.linspace(xdata.min(), xdata.max(), 500)
     # The line below was causing the artificial vertical line. We plot the real fit now.
+    v_plot = []
+    for i in v_dense:
+        if i < V0_val + 3.5:
+            v_plot.append(i)
+    v_plot = np.asarray(v_plot)
+    log_fit_curve = fit.eval(V=v_plot)
+    fit_curve = np.exp(log_fit_curve)
     ax1.plot(
-        v_dense,
-        fit.eval(V=v_dense),
+        v_plot,
+        fit_curve,
         "-",
         lw=2.5,
         color="gray",
