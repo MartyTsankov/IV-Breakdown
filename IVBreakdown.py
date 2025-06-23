@@ -280,7 +280,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / y_abs_data
+    weights = 1.0 / yerr**2
     V0_guess = xdata[br_row]
     print(V0_guess)
     K_guess = 1.0
@@ -292,7 +292,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
 
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
-    params1["b"].set(value=baseline_guess, vary=True, min=1e-13)
+    params1["b"].set(value=baseline_guess, vary=False, min=1e-13)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
