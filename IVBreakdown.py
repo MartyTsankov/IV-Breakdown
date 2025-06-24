@@ -289,7 +289,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / yerr
+    weights = 1.0 / (10**yerr)
     V0_guess = xdata[br_row]
     print(V0_guess)
     A_guess = (np.log(y_abs_data[i]) - np.log(baseline_guess)) / np.log(
@@ -321,7 +321,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
 
     V0_val = fit1.params["V0"].value
-    rang = V0_val + 10
+    rang = V0_val + 3.5
     xrange = []
     yrange = []
     wrange = []
@@ -332,7 +332,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             wrange.append(weights[i])
     params2 = fit1.params
     params2["b"].set(vary=True)
-    """
     fit2 = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
     params3 = fit2.params
@@ -351,14 +350,13 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             yrange.append(y_abs_data[i])
             wrange.append(weights[i])
 
-    """
-    fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
+    fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
 
     print(fit.fit_report(min_correl=0.5))
 
     params = fit.params
     V0_val = params["V0"].value
-    V0_err = fit.params["V0"].stderr if params["V0"].stderr is not None else 0.0
+    V0_err = fit2.params["V0"].stderr if params["V0"].stderr is not None else 0.0
     b_val = params["b"].value
     b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
     A_val = params["A"].value
