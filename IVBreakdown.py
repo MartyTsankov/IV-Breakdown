@@ -318,12 +318,10 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             wrange.append(weights[i])
 
     # Then the fit is performed on the *entire* dataset:
-    fit1 = pw_model.fit(
-        yrange, params1, V=xrange, weights=wrange, method="leastsq", max_nfev=100000
-    )
+    fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
 
     V0_val = fit1.params["V0"].value
-    rang = V0_val + 3.5
+    rang = V0_val + 10
     xrange = []
     yrange = []
     wrange = []
@@ -334,13 +332,33 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             wrange.append(weights[i])
     params2 = fit1.params
     params2["b"].set(vary=True)
+    """
+    fit2 = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
+
+    params3 = fit2.params
+    params3["V0"].set(vary=False)
+
+    V0_val = fit2.params["V0"].value
+    V0_err = fit2.params["V0"].stderr
+
+    rang = V0_val + 3.6 + V0_err
+    xrange = []
+    yrange = []
+    wrange = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang and xdata[i] > V0_val + V0_err + 0.1:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
+
+    """
     fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
     print(fit.fit_report(min_correl=0.5))
 
     params = fit.params
     V0_val = params["V0"].value
-    V0_err = params["V0"].stderr if params["V0"].stderr is not None else 0.0
+    V0_err = fit.params["V0"].stderr if params["V0"].stderr is not None else 0.0
     b_val = params["b"].value
     b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
     A_val = params["A"].value
