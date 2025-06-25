@@ -289,10 +289,10 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / (10**yerr)
+    weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
-    A_guess = (np.log(y_abs_data[i]) - np.log(baseline_guess)) / np.log(
+    A_guess = (np.log10(y_abs_data[i]) - np.log10(baseline_guess)) / np.log10(
         xdata[i] - V0_guess
     )
 
@@ -340,17 +340,25 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     V0_val = fit2.params["V0"].value
     V0_err = fit2.params["V0"].stderr
 
-    rang = V0_val + 3.6 + V0_err
+    rang = V0_val + 3.5 + V0_err
     xrange = []
     yrange = []
     wrange = []
+    yerr_range = []
     for i in range(len(xdata)):
-        if xdata[i] < rang and xdata[i] > V0_val + V0_err + 0.1:
+        if xdata[i] < rang and xdata[i] > V0_val + V0_err:
             xrange.append(xdata[i])
             yrange.append(y_abs_data[i])
             wrange.append(weights[i])
+            yerr_range.append(yerr[i])
 
     fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
+
+    # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
+    residuals_unweighted = np.asarray(yrange) - fit.best_fit
+    chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
+    dof = len(yrange) - fit.nvarys
+    red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
 
     print(fit.fit_report(min_correl=0.5))
 
@@ -361,7 +369,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
     A_val = params["A"].value
     A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
-    red_chisq = fit.redchi
+    red_chisq = red_chisq_stat
 
     # Create figure with adjusted layout
     fig, ax1 = plt.subplots()
