@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from lmfit import Model
+from lmfit import Model, minimize
 from pathlib import Path
 from lmfit.models import ConstantModel
 
@@ -37,6 +37,39 @@ def log(V, V0, b, A):
         else:
             ret_list.append(0)
     return np.asarray(ret_list)
+
+
+def chi_log(params, V, data, weights):
+    """
+    Custom objective function for your power-law ('log') model.
+    It calculates and returns the natural logarithm of the reduced chi-squared.
+    """
+    # Use your existing 'log' function as the model
+    model = log(V, **params)
+
+    # Calculate the weighted residuals. lmfit weights are 1/uncertainty.
+    # So, residual = (data - model) / uncertainty = (data - model) * weights
+    residual = (data - model) * weights
+
+    # Calculate chi-squared
+    chi_squared = np.sum(residual**2)
+
+    # Determine degrees of freedom
+    n_varys = len([p for p in params.values() if p.vary])
+    degrees_of_freedom = len(data) - n_varys
+
+    # Handle case of no degrees of freedom
+    if degrees_of_freedom <= 0:
+        return np.inf
+
+    # Calculate reduced chi-squared and its log
+    reduced_chi_squared = chi_squared / degrees_of_freedom
+
+    # Return a large number if red_chi is zero or negative to guide the fitter
+    if reduced_chi_squared <= 0:
+        return np.inf
+
+    return np.log(reduced_chi_squared)
 
 
 def sys_unc(value, is_current):
@@ -352,12 +385,19 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             wrange.append(weights[i])
             yerr_range.append(yerr[i])
 
-    fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
-
+    fit = minimize(
+        chi_log,
+        params3,
+        args=(np.asarray(xrange), np.asarray(yrange), np.asarray(wrange)),
+        method="powel",
+    )
     # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
-    residuals_unweighted = np.asarray(yrange) - fit.best_fit
+
+    best_fit_for_range = log(np.asarray(xrange), **fit.params)
+    residuals_unweighted = np.asarray(yrange) - best_fit_for_range
     chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
-    dof = len(yrange) - fit.nvarys
+    # size - independent variables
+    dof = fit.nfree
     red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
 
     print(fit.fit_report(min_correl=0.5))
