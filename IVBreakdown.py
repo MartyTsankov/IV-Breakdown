@@ -1,4 +1,5 @@
 import numpy as np
+import uuid
 import matplotlib.pyplot as plt
 import pandas as pd
 from lmfit import Model, minimize
@@ -96,17 +97,25 @@ def br_plot(volt, err, low, high):
     br_err = avg.params["c"].stderr
     y_br = np.full_like(x, br, dtype=float)
     residuals = avg.residual
+    graph_id = uuid.uuid4().hex
 
     plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
     plt.ylabel("Volts")
     plt.xlabel("Index")
-    plt.plot(x, y_br, label=f"Breakdown: {br:.2f} ± {br_err:.2g}")
+    plt.plot(x, y_br, label=f"Breakdown: {br:.2f} ± {br_err:.2g} \nID: {graph_id}")
     plt.errorbar(x, volt, yerr=err, fmt="o", ms=5, lw=1)
     plt.legend(loc="upper left")
     plt.grid()
     plt.show()
-    plt.plot(x, residuals, "o", ms=5, color="gray")
+    # Residuals
+
+    plt.title("Residuals", fontsize=33, pad=20)
+    plt.ylabel("Volts")
+    plt.xlabel("Index")
+    plt.plot(x, residuals, "o", ms=5, color="gray", label=f"ID: {graph_id}")
     plt.axhline(0, color="red", linestyle="--")
+    plt.legend(loc="upper left")
+    plt.grid()
     plt.show()
 
 
@@ -301,7 +310,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
-
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
     pw_model = Model(log)
 
@@ -361,25 +369,9 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     V0_guess_low = np.random.uniform(29, 30, 50)
     V0_guess_high = np.random.uniform(32, 34, 50)
 
-    # Then the fit is performed on the *entire* dataset:
-
-    fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
-
-    V0_val = fit1.params["V0"].value
-    rang = V0_val + 3.5
-    xrange = []
-    yrange = []
-    wrange = []
-    for i in range(len(xdata)):
-        if xdata[i] < rang:
-            xrange.append(xdata[i])
-            yrange.append(y_abs_data[i])
-            wrange.append(weights[i])
-    params2 = fit1.params
-    params2["b"].set(vary=True)
-    fit2 = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
     br_list = []
     err_list = []
+
     for j in range(len(V0_guess_high)):
         xrange = []
         yrange = []
@@ -393,7 +385,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         # Then the fit is performed on the *entire* dataset:
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
         print(fit1.fit_report(min_correl=0.5))
->>>>>>> rescue-feature
 
         V0_val = fit1.params["V0"].value
 
@@ -444,6 +435,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         A_val = params["A"].value
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
+        """
         # Create figure with adjusted layout
         fig, ax1 = plt.subplots()
         fs = 33
@@ -474,7 +466,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         ax1.tick_params(axis="x", labelsize=fs)
         ax1.set_ylim(1e-11, 1e-3)
         ax1.grid(True)
->>>>>>> rescue-feature
 
         # Generate a dense set of x-values for a smooth plot of the fit
         v_dense = np.linspace(xdata.min(), xdata.max(), 400)
@@ -503,69 +494,10 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         ax1.legend(loc="upper left", fontsize=fs - 15)
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
-
-    # Create figure with adjusted layout
-    fig, ax1 = plt.subplots()
-    fs = 33
-
-    fit_legend_label = (
-        f"Fit Model:\n"
-        f"b = {b_val:.2g} ± {b_err:.1g}\n"
-        f"A = {A_val:.2g} ± {A_err:.1g}\n"
-        f"$\\chi^2_\\nu$ = {red_chisq:.2g}"
-    )
-    # IV points with proper σ
-    ax1.errorbar(
-        xdata,
-        ydata,
-        yerr=yerr,
-        fmt="o",
-        ms=5,
-        lw=1,
-        label=Path(p).stem,
-        color="#1f77b4",
-        zorder=3,
-    )
-    ax1.set_yscale("log")
-    ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
-    ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
-    ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
-    ax1.tick_params(axis="x", labelsize=fs)
-    ax1.set_ylim(1e-11, 1e-3)
-    ax1.grid(True)
-
-    # Generate a dense set of x-values for a smooth plot of the fit
-    v_dense = np.linspace(xdata.min(), xdata.max(), 1000)
-    # The line below was causing the artificial vertical line. We plot the real fit now.
-    v_plot = []
-    for i in v_dense:
-        if i < V0_val + 3.5:
-            v_plot.append(i)
-    ax1.plot(
-        v_plot,
-        log(np.asarray(v_plot), **fit.params),
-        "-",
-        lw=2.5,
-        color="gray",
-        label=fit_legend_label,
-        zorder=4,
-    )
-    ax1.axvline(
-        V0_val,
-        ls="--",
-        lw=2,
-        color="darkred",
-        label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
-    )
-    # Combined legend with improved positioning
-    ax1.legend(loc="upper left", fontsize=fs - 15)
-    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
-    plt.show()
-=======
+        """
         br_list.append(V0_val)
         err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
->>>>>>> rescue-feature
 
 
 hist = input("Hist? (y/N)").lower() == "y"
