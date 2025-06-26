@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from lmfit import Model
+from lmfit import Model, minimize
 from pathlib import Path
 from lmfit.models import ConstantModel
 
@@ -15,7 +15,7 @@ def gaussian(x, amp, cen, sigma):
 gmodel = Model(gaussian)
 
 
-def expo_then_log(V, V0, b, A, K):
+def expo_then_log(V, V0, b, A):
     """
     • V < V0 : baseline b
     • V ≥ V0 : y = b * (1 + (V - V0)/K)**A
@@ -25,12 +25,40 @@ def expo_then_log(V, V0, b, A, K):
     """
     out = np.full_like(V, b, dtype=float)
     mask = V >= V0
-    out[mask] = b * np.power((V[mask] - V0) / K + 1.0, A)
+    out[mask] = b * np.power((V[mask] - V0), A)
     return out
 
 
-def log(V, V0, b, A, K):
-    return np.log10(expo_then_log(V, V0, b, A, K) + 1e-20)
+=======
+def log(V, V0, b, A):
+    ret_list = []
+    for i in V:
+        if i > V0:
+            ret_list.append(b * np.power((i - V0), A))
+        else:
+            ret_list.append(0)
+    return np.asarray(ret_list)
+
+
+def chi_log(params, V, data, weights):
+    # Use your existing 'log' function as the model
+    model = log(V, **params)
+
+    # Calculate the weighted residuals. lmfit weights are 1/uncertainty.
+    residual = (data - model) * weights
+    # Calculate chi-squared
+
+    chi_squared = np.sum(residual**2)
+    # Determine degrees of freedom
+
+    n_varys = len([p for p in params.values() if p.vary])
+    degrees_of_freedom = len(data) - n_varys
+
+    # Calculate reduced chi-squared and its log
+    reduced_chi_squared = chi_squared / degrees_of_freedom
+
+    return np.log(reduced_chi_squared)
+>>>>>>> simple-function2
 
 
 def sys_unc(value, is_current):
@@ -246,11 +274,12 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
 
-    logy = np.log10(y_abs_data)
-    logyerr = yerr / (y_abs_data * np.log(10.0))
+<<<<<<< HEAD
 
-    pw_model = Model(log)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
+=======
+    pw_model = Model(log)
+>>>>>>> simple-function2
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
     horiz_model = ConstantModel()
@@ -287,43 +316,103 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
-    weights = 1.0 / (logyerr**2)
+<<<<<<< HEAD
+
+=======
+    weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
-    K_guess = 1.0
-    A_guess = 1.0
+    A_guess = (np.log10(y_abs_data[i]) - np.log10(baseline_guess)) / np.log10(
+        xdata[i] - V0_guess
+    )
+
+>>>>>>> simple-function2
     # Create the parameter set with our improved guesses.
-    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess, K=K_guess)
+    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
 
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
-    params1["b"].set(value=baseline_guess, vary=False, min=1e-13)
+    params1["b"].set(value=baseline_guess, vary=True, min=1e-13)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
-    params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
-    params1["K"].set(min=1e-3, max=20)
+    params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
+
+    V0_val = V0_guess
+    rang = V0_val + 4.5
+    xrange = []
+    yrange = []
+    wrange = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
 
     # Then the fit is performed on the *entire* dataset:
-    fit1 = pw_model.fit(
-        logy, params1, V=xdata, weights=weights, method="leastsq", max_nfev=100000
-    )
+<<<<<<< HEAD
 
+=======
+    fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
+>>>>>>> simple-function2
+
+    V0_val = fit1.params["V0"].value
+    rang = V0_val + 3.5
+    xrange = []
+    yrange = []
+    wrange = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
     params2 = fit1.params
-    params2["b"].set(vary=False)
-    fit = pw_model.fit(logy, params2, V=xdata, weights=weights, method="leastsq")
+<<<<<<< HEAD
+=======
+    params2["b"].set(vary=True)
+    fit2 = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
+>>>>>>> simple-function2
 
-    print(fit.fit_report(min_correl=0.5))
+    params3 = fit2.params
+    params3["V0"].set(vary=False)
+
+    V0_val = fit2.params["V0"].value
+    V0_err = fit2.params["V0"].stderr
+
+    rang = V0_val + 3.5 + V0_err
+    xrange = []
+    yrange = []
+    wrange = []
+    yerr_range = []
+    for i in range(len(xdata)):
+        if xdata[i] < rang and xdata[i] > V0_val + V0_err:
+            xrange.append(xdata[i])
+            yrange.append(y_abs_data[i])
+            wrange.append(weights[i])
+            yerr_range.append(yerr[i])
+
+    fit = minimize(
+        chi_log,
+        params3,
+        args=(xrange, (yrange), (wrange)),
+        method="nelder",
+    )
+    # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
+
+    best_fit_for_range = log(np.asarray(xrange), **fit.params)
+    residuals_unweighted = np.asarray(yrange) - best_fit_for_range
+    chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
+    # size - independent variables
+    dof = fit.nfree
+    red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
 
     params = fit.params
     V0_val = params["V0"].value
-    V0_err = params["V0"].stderr if params["V0"].stderr is not None else 0.0
+    V0_err = fit2.params["V0"].stderr if params["V0"].stderr is not None else 0.0
     b_val = params["b"].value
     b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
     A_val = params["A"].value
     A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
-    K_val = params["K"].value
-    K_err = params["K"].stderr if params["K"].stderr is not None else 0.0
-    red_chisq = fit.redchi
+    red_chisq = red_chisq_stat
 
     # Create figure with adjusted layout
     fig, ax1 = plt.subplots()
@@ -333,7 +422,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         f"Fit Model:\n"
         f"b = {b_val:.2g} ± {b_err:.1g}\n"
         f"A = {A_val:.2g} ± {A_err:.1g}\n"
-        f"K = {K_val:.2g} ± {K_err:.1g}\n"
         f"$\\chi^2_\\nu$ = {red_chisq:.2g}"
     )
     # IV points with proper σ
@@ -357,18 +445,22 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     ax1.grid(True)
 
     # Generate a dense set of x-values for a smooth plot of the fit
-    v_dense = np.linspace(xdata.min(), xdata.max(), 500)
+<<<<<<< HEAD
+=======
+    v_dense = np.linspace(xdata.min(), xdata.max(), 1000)
+>>>>>>> simple-function2
     # The line below was causing the artificial vertical line. We plot the real fit now.
     v_plot = []
     for i in v_dense:
         if i < V0_val + 3.5:
             v_plot.append(i)
-    v_plot = np.asarray(v_plot)
-    log_fit_curve = fit.eval(V=v_plot)
-    fit_curve = np.exp(log_fit_curve)
+<<<<<<< HEAD
+    
+=======
     ax1.plot(
         v_plot,
-        fit_curve,
+        log(np.asarray(v_plot), **fit.params),
+>>>>>>> simple-function2
         "-",
         lw=2.5,
         color="gray",
