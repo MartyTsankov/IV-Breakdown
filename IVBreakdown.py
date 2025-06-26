@@ -61,6 +61,35 @@ def sys_unc(value, is_current):
         return [0.15 * v, 5e-3]
 
 
+def br_plot(volt, err, low, high):
+    x = list(range(0, len(volt)))
+    print(volt)
+    print(low)
+    print(high)
+    horiz_model = ConstantModel()
+    for i in range(len(err)):
+        if err[i] == 0:
+            err[i] = 1
+
+    avg = horiz_model.fit(volt, x=x, weights=1 / (np.asarray(err)))
+    br = avg.params["c"].value
+    br_err = avg.params["c"].stderr
+    y_br = np.full_like(x, br, dtype=float)
+    residuals = avg.residual
+
+    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
+    plt.ylabel("Volts")
+    plt.xlabel("Index")
+    plt.plot(x, y_br, label=f"Breakdown: {br:.2f} ± {br_err:.2g}")
+    plt.errorbar(x, volt, yerr=err, fmt="o", ms=5, lw=1)
+    plt.legend(loc="upper left")
+    plt.grid()
+    plt.show()
+    plt.plot(x, residuals, "o", ms=5, color="gray")
+    plt.axhline(0, color="red", linestyle="--")
+    plt.show()
+
+
 def data(p, fix):
     labels = ["Date", "Time", "I_1", "I_2", "Voltage", "IDK"]
     filename = Path(p).stem
@@ -306,128 +335,137 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_val = V0_guess
-    rang = V0_val + 4.5
-    xrange = []
-    yrange = []
-    wrange = []
-    for i in range(len(xdata)):
-        if xdata[i] < rang:
-            xrange.append(xdata[i])
-            yrange.append(y_abs_data[i])
-            wrange.append(weights[i])
+    V0_guess_low = np.random.uniform(29, 30, 50)
+    V0_guess_high = np.random.uniform(32, 34, 50)
 
-    # Then the fit is performed on the *entire* dataset:
-    fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
+    br_list = []
+    err_list = []
+    for j in range(len(V0_guess_high)):
+        xrange = []
+        yrange = []
+        wrange = []
+        for i in range(len(xdata)):
+            if xdata[i] > V0_guess_low[j] and xdata[i] < V0_guess_high[j]:
+                xrange.append(xdata[i])
+                yrange.append(y_abs_data[i])
+                wrange.append(weights[i])
 
-    V0_val = fit1.params["V0"].value
-    rang = V0_val + 3.5
-    xrange = []
-    yrange = []
-    wrange = []
-    for i in range(len(xdata)):
-        if xdata[i] < rang:
-            xrange.append(xdata[i])
-            yrange.append(y_abs_data[i])
-            wrange.append(weights[i])
-    params2 = fit1.params
-    params2["b"].set(vary=True)
-    fit2 = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
+        # Then the fit is performed on the *entire* dataset:
+        fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
+        print(fit1.fit_report(min_correl=0.5))
 
-    params3 = fit2.params
-    params3["V0"].set(vary=False)
+        V0_val = fit1.params["V0"].value
 
-    V0_val = fit2.params["V0"].value
-    V0_err = fit2.params["V0"].stderr
+        xrange = []
+        yrange = []
+        wrange = []
+        yerr_range = []
+        for i in range(len(xdata)):
+            if xdata[i] > V0_guess_low[j] and xdata[i] < V0_guess_high[j]:
+                xrange.append(xdata[i])
+                yrange.append(y_abs_data[i])
+                wrange.append(weights[i])
+                yerr_range.append(yerr[i])
+        params2 = fit1.params
+        params2["b"].set(vary=True)
+        fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
-    rang = V0_val + 3.5 + V0_err
-    xrange = []
-    yrange = []
-    wrange = []
-    yerr_range = []
-    for i in range(len(xdata)):
-        if xdata[i] < rang and xdata[i] > V0_val + V0_err:
+        print(fit.fit_report(min_correl=0.5))
+        """
+        params3 = fit2.params
+
+
+        V0_val = fit2.params["V0"].value
+        V0_err = fit2.params["V0"].stderr
+
+        xrange = []
+        yrange = []
+        wrange = []
+        yerr_range = []
+        if xdata[i] > V0_guess_low[j] and xdata[i] < V0_guess_high[j]:
             xrange.append(xdata[i])
             yrange.append(y_abs_data[i])
             wrange.append(weights[i])
             yerr_range.append(yerr[i])
 
-    fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
+        fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
+        """
+        # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
+        residuals_unweighted = np.asarray(yrange) - fit.best_fit
+        chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
+        dof = len(yrange) - fit.nvarys
+        red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
 
-    # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
-    residuals_unweighted = np.asarray(yrange) - fit.best_fit
-    chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
-    dof = len(yrange) - fit.nvarys
-    red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
+        params = fit.params
+        V0_val = params["V0"].value
+        V0_err = fit.params["V0"].stderr if params["V0"].stderr is not None else 0.0
+        b_val = params["b"].value
+        b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
+        A_val = params["A"].value
+        A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
+        red_chisq = red_chisq_stat
+        # Create figure with adjusted layout
+        fig, ax1 = plt.subplots()
+        fs = 33
 
-    print(fit.fit_report(min_correl=0.5))
+        fit_legend_label = (
+            f"Fit Model:\n"
+            f"b = {b_val:.2g} ± {b_err:.1g}\n"
+            f"A = {A_val:.2g} ± {A_err:.1g}\n"
+            f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
+            f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}"
+        )
+        # IV points with proper σ
+        ax1.errorbar(
+            xdata,
+            ydata,
+            yerr=yerr,
+            fmt="o",
+            ms=5,
+            lw=1,
+            label=Path(p).stem,
+            color="#1f77b4",
+            zorder=3,
+        )
+        ax1.set_yscale("log")
+        ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
+        ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
+        ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
+        ax1.tick_params(axis="x", labelsize=fs)
+        ax1.set_ylim(1e-11, 1e-3)
+        ax1.grid(True)
 
-    params = fit.params
-    V0_val = params["V0"].value
-    V0_err = fit2.params["V0"].stderr if params["V0"].stderr is not None else 0.0
-    b_val = params["b"].value
-    b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
-    A_val = params["A"].value
-    A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
-    red_chisq = red_chisq_stat
+        # Generate a dense set of x-values for a smooth plot of the fit
+        v_dense = np.linspace(xdata.min(), xdata.max(), 400)
+        # The line below was causing the artificial vertical line. We plot the real fit now.
+        v_plot = []
+        for x in v_dense:
+            if x < V0_guess_high[j]:
+                v_plot.append(x)
+        ax1.plot(
+            v_plot,
+            fit.eval(V=v_plot),
+            "-",
+            lw=2.5,
+            color="gray",
+            label=fit_legend_label,
+            zorder=4,
+        )
+        ax1.axvline(
+            V0_val,
+            ls="--",
+            lw=2,
+            color="darkred",
+            label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
+        )
+        # Combined legend with improved positioning
+        ax1.legend(loc="upper left", fontsize=fs - 15)
+        plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
+        plt.show()
 
-    # Create figure with adjusted layout
-    fig, ax1 = plt.subplots()
-    fs = 33
-
-    fit_legend_label = (
-        f"Fit Model:\n"
-        f"b = {b_val:.2g} ± {b_err:.1g}\n"
-        f"A = {A_val:.2g} ± {A_err:.1g}\n"
-        f"$\\chi^2_\\nu$ = {red_chisq:.2g}"
-    )
-    # IV points with proper σ
-    ax1.errorbar(
-        xdata,
-        ydata,
-        yerr=yerr,
-        fmt="o",
-        ms=5,
-        lw=1,
-        label=Path(p).stem,
-        color="#1f77b4",
-        zorder=3,
-    )
-    ax1.set_yscale("log")
-    ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
-    ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
-    ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
-    ax1.tick_params(axis="x", labelsize=fs)
-    ax1.set_ylim(1e-11, 1e-3)
-    ax1.grid(True)
-
-    # Generate a dense set of x-values for a smooth plot of the fit
-    v_dense = np.linspace(xdata.min(), xdata.max(), 1000)
-    # The line below was causing the artificial vertical line. We plot the real fit now.
-    v_plot = []
-    for i in v_dense:
-        if i < V0_val + 3.5:
-            v_plot.append(i)
-    ax1.plot(
-        v_plot,
-        fit.eval(V=v_plot),
-        "-",
-        lw=2.5,
-        color="gray",
-        label=fit_legend_label,
-        zorder=4,
-    )
-    ax1.axvline(
-        V0_val,
-        ls="--",
-        lw=2,
-        color="darkred",
-        label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
-    )
-    # Combined legend with improved positioning
-    ax1.legend(loc="upper left", fontsize=fs - 15)
-    plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
-    plt.show()
+        br_list.append(V0_val)
+        err_list.append(V0_err)
+    br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
 
 
 hist = input("Hist? (y/N)").lower() == "y"
