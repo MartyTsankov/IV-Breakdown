@@ -84,9 +84,6 @@ def sys_unc(value, is_current):
 
 def br_plot(volt, err, low, high):
     x = list(range(0, len(volt)))
-    print(volt)
-    print(low)
-    print(high)
     horiz_model = ConstantModel()
     for i in range(len(err)):
         if err[i] == 0:
@@ -119,7 +116,7 @@ def br_plot(volt, err, low, high):
     plt.show()
 
 
-def data(p, fix):
+def data(p, fix, r):
     labels = ["Date", "Time", "I_1", "I_2", "Voltage", "IDK"]
     filename = Path(p).stem
     basename = filename.split("-")
@@ -139,7 +136,7 @@ def data(p, fix):
     V_max = np.argmax(V)
     V_up = np.asarray(V[fix * 10 : V_max + 1])
     V_up += bias
-    V_down = np.asarray(V[:V_max:])
+    V_down = np.asarray(V[V_max:])
     V_down += bias
     I_up = np.asarray(I[fix * 10 : V_max + 1])
     I_down = np.asarray(I[V_max:])
@@ -160,6 +157,23 @@ def data(p, fix):
             V_check = []
             I_check = []
 
+    Vd_shape = []
+    Vd_check = []
+    Id_shape = []
+    Id_check = []
+
+    for i in range(len(V_down) - 1):
+        if V_down[i] == V_down[i + 1]:
+            Vd_check.append(V_down[i])
+            Id_check.append(I_down[i])
+        else:
+            Vd_check.append(V_down[i])
+            Id_check.append(I_down[i])
+            Vd_shape.append(Vd_check)
+            Id_shape.append(Id_check)
+            Vd_check = []
+            Id_check = []
+
     ydata = np.array([np.mean(row) for row in I_shape])
 
     for i in range(0, len(ydata)):
@@ -168,9 +182,12 @@ def data(p, fix):
                 if I_shape[i][j] > 10**10:
                     I_shape[i][j] = I_shape[i][j - 1]
 
-    num_points = len(V_up)
+    num_points_up = len(V_up)
+    num_points_down = len(V_down)
 
-    return V_shape, I_shape, num_points, basename
+    if r:
+        return Vd_shape[::-1], Id_shape[::-1], num_points_down, basename
+    return V_shape, I_shape, num_points_up, basename
 
 
 def plot_hist(hist_list, max_current, alpha=0.5):
@@ -274,8 +291,8 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
     plt.show()
 
 
-def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
-    V, I, num_points, basename = data(p, fix)
+def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
+    V, I, num_points, basename = data(p, fix, r)
     unc_list = []
     N = []
     for row in I:
@@ -309,7 +326,8 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     xdata = np.array([row[0] for row in V])
     ydata = np.array([np.asarray(row).mean() for row in I])
     y_abs_data = np.abs(ydata)
-
+    if r:
+        ydata = np.abs(ydata)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
     pw_model = Model(log)
 
@@ -366,8 +384,8 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_guess_low = np.random.uniform(29, 30, 50)
-    V0_guess_high = np.random.uniform(32, 34, 50)
+    V0_guess_low = np.random.uniform(31.5, 31.8, 50)
+    V0_guess_high = np.random.uniform(33, 33.5, 50)
 
     br_list = []
     err_list = []
@@ -384,7 +402,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
 
         # Then the fit is performed on the *entire* dataset:
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
-        print(fit1.fit_report(min_correl=0.5))
 
         V0_val = fit1.params["V0"].value
 
@@ -402,7 +419,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         params2["b"].set(vary=True)
         fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
-        print(fit.fit_report(min_correl=0.5))
         """
         params3 = fit2.params
 
@@ -435,17 +451,23 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         A_val = params["A"].value
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
-        """
+
         # Create figure with adjusted layout
         fig, ax1 = plt.subplots()
         fs = 33
 
+        ramp = ""
+        if r:
+            ramp = "Ramp Down"
+        else:
+            ramp = "Ramp Up"
         fit_legend_label = (
             f"Fit Model:\n"
             f"b = {b_val:.2g} ± {b_err:.1g}\n"
             f"A = {A_val:.2g} ± {A_err:.1g}\n"
             f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
-            f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}"
+            f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
+            f"{ramp}"
         )
         # IV points with proper σ
         ax1.errorbar(
@@ -491,16 +513,15 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
             label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
         )
         # Combined legend with improved positioning
-        ax1.legend(loc="upper left", fontsize=fs - 15)
+        ax1.legend(loc="upper left", fontsize=fs - 18)
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
-        """
         br_list.append(V0_val)
         err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
 
 
-hist = input("Hist? (y/N)").lower() == "y"
+hist = input("Hist? (y/N) ").lower() == "y"
 
 if hist:
     hist_list = []
@@ -513,4 +534,5 @@ if hist:
 else:
     p = str(input("Enter file path: "))
     fix = int(input("Enter fix: "))
-    plot_breakdown(p, fix)
+    r = input("Ramp down? (y/N) ").lower() == "y"
+    plot_breakdown(p, fix, r)
