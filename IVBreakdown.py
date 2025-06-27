@@ -366,7 +366,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_guess_low = np.random.uniform(29, 30, 50)
+    V0_guess_low = np.random.uniform(28.2, 29, 50)
     V0_guess_high = np.random.uniform(32, 34, 50)
 
     br_list = []
@@ -383,8 +383,11 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
                 wrange.append(weights[i])
 
         # Then the fit is performed on the *entire* dataset:
+        print("Hello")
+        print(V0_guess_low[j])
+        print(V0_guess_high[j])
+
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
-        print(fit1.fit_report(min_correl=0.5))
 
         V0_val = fit1.params["V0"].value
 
@@ -402,7 +405,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         params2["b"].set(vary=True)
         fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
-        print(fit.fit_report(min_correl=0.5))
         """
         params3 = fit2.params
 
@@ -435,7 +437,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         A_val = params["A"].value
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
-        """
+
         # Create figure with adjusted layout
         fig, ax1 = plt.subplots()
         fs = 33
@@ -494,7 +496,6 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
         ax1.legend(loc="upper left", fontsize=fs - 15)
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
-        """
         br_list.append(V0_val)
         err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
