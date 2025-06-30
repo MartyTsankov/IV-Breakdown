@@ -384,8 +384,8 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_guess_low = np.random.uniform(31.5, 31.8, 50)
-    V0_guess_high = np.random.uniform(33, 33.5, 50)
+    V0_guess_low = np.random.uniform(28, 29, 50)
+    V0_guess_high = np.random.uniform(32, 34, 50)
 
     br_list = []
     err_list = []
