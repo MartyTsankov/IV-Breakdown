@@ -352,9 +352,7 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
-    A_guess = (np.log10(y_abs_data[i]) - np.log10(baseline_guess)) / np.log10(
-        xdata[i] - V0_guess
-    )
+    A_guess = 1.7
 
     # Create the parameter set with our improved guesses.
     params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
@@ -366,8 +364,8 @@ def plot_breakdown(p, fix, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_guess_low = np.random.uniform(28.2, 29, 50)
-    V0_guess_high = np.random.uniform(32, 34, 50)
+    V0_guess_low = np.round(np.random.uniform(27.8, 27.8, 50), 3)
+    V0_guess_high = np.round(np.random.uniform(29, 30, 50), 3)
 
     br_list = []
     err_list = []
