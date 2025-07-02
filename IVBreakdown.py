@@ -370,10 +370,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
-    A_guess = (np.log10(y_abs_data[i]) - np.log10(baseline_guess)) / np.log10(
-        xdata[i] - V0_guess
-    )
-
+    A_guess = 1.7
     # Create the parameter set with our improved guesses.
     params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
 
@@ -384,8 +381,8 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
 
-    V0_guess_low = np.random.uniform(28, 29, 50)
-    V0_guess_high = np.random.uniform(32, 34, 50)
+    V0_guess_low = np.random.uniform(27.7, 27.7, 50)
+    V0_guess_high = np.random.uniform(29, 30, 50)
 
     br_list = []
     err_list = []
@@ -452,6 +449,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
 
+        """
         # Create figure with adjusted layout
         fig, ax1 = plt.subplots()
         fs = 33
@@ -516,6 +514,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         ax1.legend(loc="upper left", fontsize=fs - 18)
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
+        """
         br_list.append(V0_val)
         err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
