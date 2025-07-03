@@ -16,7 +16,7 @@ def gaussian(x, amp, cen, sigma):
 gmodel = Model(gaussian)
 
 
-def expo_then_log(V, V0, b, A):
+def expo_then_log(V, V0, b, A, c):
     """
     • V < V0 : baseline b
     • V ≥ V0 : y = b * (1 + (V - V0)/K)**A
@@ -24,10 +24,8 @@ def expo_then_log(V, V0, b, A):
       - initial slope on log-y axis  =  A/K
       - long-range growth            ~  A*log(V)
     """
-    out = np.full_like(V, b, dtype=float)
-    mask = V >= V0
-    out[mask] = b * np.power((V[mask] - V0), A)
-    return out
+
+    return np.where(V > V0, b * np.power(V - V0, A) + c, c)
 
 
 def log(V, V0, b, A):
@@ -329,7 +327,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     if r:
         ydata = np.abs(ydata)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
-    pw_model = Model(log)
+    pw_model = Model(expo_then_log)
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
     horiz_model = ConstantModel()
@@ -366,22 +364,26 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         weights=1.0 / yerr[:br_row],
     )
     baseline_guess = baseline_fit2.params["c"].value
+    baseline_error = baseline_fit2.params["c"].stderr
 
     weights = 1.0 / yerr
     V0_guess = xdata[br_row]
     print(V0_guess)
     A_guess = 1.7
     # Create the parameter set with our improved guesses.
-    params1 = pw_model.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
+    params1 = pw_model.make_params(
+        b=baseline_guess, V0=V0_guess, A=A_guess, c=baseline_guess
+    )
 
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
-    params1["b"].set(value=baseline_guess, vary=True, min=1e-13)
+    params1["b"].set(value=baseline_guess * 10, vary=True, min=1e-13)
+    params1["c"].set(value=baseline_guess, vary=False, min=1e-13)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=1000)  # Allow k to be much smaller or larger
     V0_guess_low = np.random.uniform(27.7, 27.7, 50)
-    V0_guess_high = np.random.uniform(29, 30, 50)
+    V0_guess_high = np.random.uniform(31, 32, 50)
     br_list = []
     err_list = []
 
@@ -402,6 +404,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
 
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
 
+        print(fit1.fit_report())
         V0_val = fit1.params["V0"].value
 
         xrange = []
@@ -415,7 +418,6 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
                 wrange.append(weights[i])
                 yerr_range.append(yerr[i])
         params2 = fit1.params
-        params2["b"].set(vary=True)
         fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
         """
@@ -449,9 +451,13 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         b_err = params["b"].stderr if params["b"].stderr is not None else 0.0
         A_val = params["A"].value
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
-        red_chisq = red_chisq_stat
+        c_val = params["c"].value
+        c_err = params["c"].stderr if params["c"].stderr is not None else 0.0
 
-        # Create figure with adjusted layout
+        red_chisq = red_chisq_stat
+        print(fit.fit_report())
+
+        # figure
         fig, ax1 = plt.subplots()
         fs = 33
 
@@ -462,7 +468,8 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
             ramp = "Ramp Up"
         fit_legend_label = (
             f"Fit Model:\n"
-            f"b = {b_val:.2g} ± {b_err:.1g}\n"
+            f"c = {b_val:.2g} ± {b_err:.1g}\n"
+            f"base = {c_val:.2g} ± {baseline_error:.1g}\n"
             f"A = {A_val:.2g} ± {A_err:.1g}\n"
             f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
             f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
@@ -509,12 +516,13 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
             ls="--",
             lw=2,
             color="darkred",
-            label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2f} V)",
+            label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2g} V)",
         )
         # Combined legend with improved positioning
         ax1.legend(loc="upper left", fontsize=fs - 18)
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
+        # figure
         br_list.append(V0_val)
         err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
