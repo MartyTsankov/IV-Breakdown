@@ -384,10 +384,11 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     farams1["V0"].set(min=xdata.min(), max=xdata.max())
     farams1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
 
+    # Range
     min = xdata.min()
     max = xdata.max()
-    V0_guess_low = np.random.uniform(30, 30, 50)
-    V0_guess_high = np.random.uniform(32.5 + 0.7, 33 + 0.7, 50)
+    V0_guess_low = np.random.uniform(min, min, 50)
+    V0_guess_high = np.random.uniform(30, 32, 50)
     br_list = []
     err_list = []
 
@@ -542,33 +543,6 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
             zorder=4,
             alpha=1.0,
         )
-
-        ax1.plot(
-            v_plot,
-            pit.eval(V=v_plot),
-            "-",
-            lw=2.5,
-            color="blue",
-            label=pit_legend_label,
-            zorder=4,
-            alpha=0.5,
-        )
-        ax1.plot(
-            v_plot,
-            fit.eval(V=v_plot) - baseline_guess,
-            "--",
-            lw=2.5,
-            color="orange",
-            alpha=0.6,
-        )
-        ax1.plot(
-            v_plot,
-            np.full_like(v_plot, baseline_guess),
-            "--",
-            lw=2.5,
-            color="orange",
-            alpha=0.6,
-        )
         ax1.axvline(
             V0_val,
             ls="--",
@@ -576,15 +550,6 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
             color="darkred",
             label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2g} V)",
         )
-
-        ax1.axvline(
-            V0_vals,
-            ls="--",
-            lw=2,
-            color="black",
-            label=f"Breakdown: ({V0_vals:.2f} ± {V0_errs:.2g} V)",
-        )
-
         ax1.axvspan(
             V0_guess_low[j],
             V0_guess_high[j],
@@ -598,6 +563,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
         plt.show()
         # figure
+
         br_list.append(V0_vals)
         err_list.append(V0_errs)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
