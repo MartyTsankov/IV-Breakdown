@@ -1,4 +1,5 @@
 import numpy as np
+
 import uuid
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -283,7 +284,7 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
     plt.show()
 
 
-def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
+def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold=2):
     V, I, num_points, basename = data(p, fix, r)
     unc_list = []
     N = []
@@ -321,8 +322,6 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     if r:
         ydata = np.abs(ydata)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
-    pw_model = Model(expo_then_log)
-    pw_model2 = Model(log)
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
     horiz_model = ConstantModel()
@@ -345,13 +344,69 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     # 3. The "br" is the point just before the chi-squared value crosses the threshold.
     # We find the first index where the condition is met.
     # The threshold is arbitrary, but since it's just a guess for the real fit it's ok
+
+    if line:
+        baseline_fit2 = horiz_model.fit(
+            y_abs_data,
+            x=xdata,
+            weights=1.0 / yerr,
+        )
+
+        baseline_val = baseline_fit2.params["c"].value
+        baseline_err = baseline_fit2.params["c"].stderr
+
+        fig, ax1 = plt.subplots()
+        fs = 33
+
+        ramp = ""
+        if r:
+            ramp = "Ramp Down"
+        else:
+            ramp = "Ramp Up"
+        fit_legend_label = (
+            "Fit Model: " + r"$y(V) = b$" + "\n"
+            f"c = {baseline_val:.2g} ± {baseline_err:.1g}\n"
+            f"{ramp}"
+        )
+
+        ax1.errorbar(
+            xdata,
+            ydata,
+            yerr=yerr,
+            fmt="o",
+            ms=5,
+            lw=1,
+            label=Path(p).stem,
+            color="#1f77b4",
+            zorder=3,
+        )
+        ax1.set_yscale("log")
+        ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
+        ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
+        ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
+        ax1.tick_params(axis="x", labelsize=fs)
+        ax1.set_ylim(1e-11, 1e-3)
+        ax1.grid(True)
+        v_plot = np.linspace(xdata.min(), xdata.max(), 400)
+        ax1.plot(
+            v_plot,
+            baseline_fit2.eval(x=v_plot),
+            "-",
+            lw=2.5,
+            color="orange",
+            label=fit_legend_label,
+            zorder=4,
+            alpha=1.0,
+        )
+        ax1.legend(loc="upper left", fontsize=fs - 18)
+        plt.title(f"Baseline of {Path(p).stem}", fontsize=33, pad=20)
+        plt.show()
+
+        return xdata[-1]
+
     br_candidates = np.where(chisq_reduced >= threshold)[0]
     if br_candidates.size > 0:
         br_row = br_candidates[0]
-    else:
-        # Fallback: if threshold is never crossed, guess the midpoint.
-        br_row = len(xdata) // 2
-        print("Warning: Chi-squared threshold not crossed. Guessing midpoint for V0.")
 
     baseline_fit2 = horiz_model.fit(
         y_abs_data[:br_row],
@@ -361,16 +416,15 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     baseline_guess = baseline_fit2.params["c"].value
     baseline_error = baseline_fit2.params["c"].stderr
 
+    pw_model = Model(expo_then_log)
     weights = 1.0 / yerr
     V0_guess = xdata[br_row]
-    print(V0_guess)
     A_guess = 1.7
     # Create the parameter set with our improved guesses.
     params1 = pw_model.make_params(
         b=baseline_guess, V0=V0_guess, A=A_guess, c=baseline_guess
     )
 
-    farams1 = pw_model2.make_params(b=baseline_guess, V0=V0_guess, A=A_guess)
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
     params1["b"].set(value=baseline_guess * 10, vary=True, min=1e-13)
@@ -379,16 +433,11 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
 
-    farams1["b"].set(value=baseline_guess * 10, vary=True, min=1e-13)
-    # dI must be positive.
-    farams1["V0"].set(min=xdata.min(), max=xdata.max())
-    farams1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
-
     # Range
     min = xdata.min()
     max = xdata.max()
     V0_guess_low = np.random.uniform(min, min, 50)
-    V0_guess_high = np.random.uniform(30, 32, 50)
+    V0_guess_high = np.random.uniform(32.89, 32.89, 50)
     br_list = []
     err_list = []
 
@@ -403,14 +452,8 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
                 wrange.append(weights[i])
 
         # Then the fit is performed on the *entire* dataset:
-        print("Hello")
-        print(V0_guess_low[j])
-        print(V0_guess_high[j])
 
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
-        pit1 = pw_model2.fit(
-            yrange, farams1, V=xrange, weights=wrange, method="leastsq"
-        )
 
         # print(fit1.fit_report())
         V0_val = fit1.params["V0"].value
@@ -426,9 +469,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
                 wrange.append(weights[i])
                 yerr_range.append(yerr[i])
         params2 = fit1.params
-        farams2 = pit1.params
         fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
-        pit = pw_model2.fit(yrange, farams2, V=xrange, weights=wrange, method="leastsq")
 
         """
         params3 = fit2.params
@@ -453,13 +494,8 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
         dof = len(yrange) - fit.nvarys
         red_chisq_stat = chisq_stat / dof if dof > 0 else 0.0
-
-        residuals_unweighted = np.asarray(yrange) - pit.best_fit
-        chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
-        dof = len(yrange) - fit.nvarys
-        red_chisq_stats = chisq_stat / dof if dof > 0 else 0.0
-
         params = fit.params
+
         V0_val = params["V0"].value
         V0_err = fit.params["V0"].stderr if params["V0"].stderr is not None else 0.0
         b_val = params["b"].value
@@ -468,17 +504,7 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         A_err = params["A"].stderr if params["A"].stderr is not None else 0.0
         c_val = params["c"].value
         c_err = params["c"].stderr if params["c"].stderr is not None else 0.0
-
-        farams = pit.params
-        V0_vals = farams["V0"].value
-        V0_errs = pit.params["V0"].stderr if farams["V0"].stderr is not None else 0.0
-        b_vals = farams["b"].value
-        b_errs = farams["b"].stderr if farams["b"].stderr is not None else 0.0
-        A_vals = farams["A"].value
-        A_errs = farams["A"].stderr if farams["A"].stderr is not None else 0.0
-
         red_chisq = red_chisq_stat
-        red_chisqs = red_chisq_stats
         # print(fit.fit_report())
 
         # figure
@@ -497,13 +523,6 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
             f"A = {A_val:.2g} ± {A_err:.1g}\n"
             f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
             f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
-            f"{ramp}"
-        )
-        pit_legend_label = (
-            "Fit Model: " + r"$y(V)=c\,(V - V_{0})^{A}$" + "\n"
-            f"c = {b_vals:.2g} ± {b_errs:.1g}\n"
-            f"A = {A_vals:.2g} ± {A_errs:.1g}\n"
-            f"$\\chi^2_\\nu$ = {red_chisqs:.2g}\n"
             f"{ramp}"
         )
         # IV points with proper σ
@@ -564,9 +583,10 @@ def plot_breakdown(p, fix, r, show=True, initial_window_size=25, threshold=1):
         plt.show()
         # figure
 
-        br_list.append(V0_vals)
-        err_list.append(V0_errs)
+        br_list.append(V0_val)
+        err_list.append(V0_err)
     br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
+    return V0_val
 
 
 hist = input("Hist? (y/N) ").lower() == "y"
@@ -583,4 +603,5 @@ else:
     p = str(input("Enter file path: "))
     fix = int(input("Enter fix: "))
     r = input("Ramp down? (y/N) ").lower() == "y"
-    plot_breakdown(p, fix, r)
+    line = input("Baseline? (y/N) ").lower() == "y"
+    br = plot_breakdown(p, fix, r, line)
