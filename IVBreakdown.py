@@ -75,7 +75,7 @@ def sys_unc(value, is_current):
         return [0.15 * v, 5e-3]
 
 
-def br_plot(volt, err, low, high):
+def br_plot(volt, err, min, low, high):
     x = list(range(0, len(volt)))
     horiz_model = ConstantModel()
     for i in range(len(err)):
@@ -89,12 +89,20 @@ def br_plot(volt, err, low, high):
     residuals = avg.residual
     graph_id = uuid.uuid4().hex
 
+    fit_label = (
+        f"Fit: {br:.2f} ± {br_err:.2g}\n"
+        f"Average Breakdown: {np.mean(volt):.2f}\n"
+        f"Standard Deviation: {np.std(volt):.2g}\n"
+        f"Reduced Chi Squared: {avg.redchi:2g}\n"
+        f"Fit Range: {min}V to {low}V - {high}V\n"
+        f"ID: {graph_id}"
+    )
     plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
     plt.ylabel("Volts")
     plt.xlabel("Index")
-    plt.plot(x, y_br, label=f"Breakdown: {br:.2f} ± {br_err:.2g} \nID: {graph_id}")
+    plt.plot(x, y_br, label=fit_label)
     plt.errorbar(x, volt, yerr=err, fmt="o", ms=5, lw=1)
-    plt.legend(loc="upper left")
+    plt.legend(loc="lower left", fontsize=33 - 18)
     plt.grid()
     plt.show()
     # Residuals
@@ -284,7 +292,9 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
     plt.show()
 
 
-def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold=2):
+def plot_breakdown(
+    p, fix, r, line, figure, show=True, initial_window_size=25, threshold=2
+):
     V, I, num_points, basename = data(p, fix, r)
     unc_list = []
     N = []
@@ -428,7 +438,7 @@ def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
     params1["b"].set(value=baseline_guess * 10, vary=True, min=1e-13)
-    params1["c"].set(value=baseline_guess, vary=False, min=1e-13)
+    params1["c"].set(value=baseline_guess, vary=True, min=1e-13)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
@@ -436,8 +446,11 @@ def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold
     # Range
     min = xdata.min()
     max = xdata.max()
+    low = 29
+    high = 31
     V0_guess_low = np.random.uniform(min, min, 50)
-    V0_guess_high = np.random.uniform(32.89, 32.89, 50)
+    V0_guess_high = np.random.uniform(low, high, 50)
+
     br_list = []
     err_list = []
 
@@ -474,7 +487,6 @@ def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold
         """
         params3 = fit2.params
 
-
         V0_val = fit2.params["V0"].value
         V0_err = fit2.params["V0"].stderr
 
@@ -489,6 +501,7 @@ def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold
             yerr_range.append(yerr[i])
         fit = pw_model.fit(yrange, params3, V=xrange, weights=wrange, method="leastsq")
         """
+
         # --- CALCULATE STATISTICALLY MEANINGFUL CHI-SQUARED ---
         residuals_unweighted = np.asarray(yrange) - fit.best_fit
         chisq_stat = np.sum((residuals_unweighted / yerr_range) ** 2)
@@ -508,84 +521,85 @@ def plot_breakdown(p, fix, r, line, show=True, initial_window_size=25, threshold
         # print(fit.fit_report())
 
         # figure
-        fig, ax1 = plt.subplots()
-        fs = 33
+        if figure is False:
+            fig, ax1 = plt.subplots()
+            fs = 33
 
-        ramp = ""
-        if r:
-            ramp = "Ramp Down"
-        else:
-            ramp = "Ramp Up"
-        fit_legend_label = (
-            "Fit Model: " + r"$y(V)=c\,(V - V_{0})^{A} + b$" + "\n"
-            f"c = {b_val:.2g} ± {b_err:.1g}\n"
-            f"b (Fixed) = {c_val:.2g} ± {baseline_error:.1g}\n"
-            f"A = {A_val:.2g} ± {A_err:.1g}\n"
-            f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
-            f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
-            f"{ramp}"
-        )
-        # IV points with proper σ
-        ax1.errorbar(
-            xdata,
-            ydata,
-            yerr=yerr,
-            fmt="o",
-            ms=5,
-            lw=1,
-            label=Path(p).stem,
-            color="#1f77b4",
-            zorder=3,
-        )
-        ax1.set_yscale("log")
-        ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
-        ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
-        ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
-        ax1.tick_params(axis="x", labelsize=fs)
-        ax1.set_ylim(1e-11, 1e-3)
-        ax1.grid(True)
+            ramp = ""
+            if r:
+                ramp = "Ramp Down"
+            else:
+                ramp = "Ramp Up"
+            fit_legend_label = (
+                "Fit Model: " + r"$y(V)=c\,(V - V_{0})^{A} + b$" + "\n"
+                f"c = {b_val:.2g} ± {b_err:.1g}\n"
+                f"b (Fixed) = {c_val:.2g} ± {baseline_error:.1g}\n"
+                f"A = {A_val:.2g} ± {A_err:.1g}\n"
+                f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
+                f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
+                f"{ramp}"
+            )
+            # IV points with proper σ
+            ax1.errorbar(
+                xdata,
+                ydata,
+                yerr=yerr,
+                fmt="o",
+                ms=5,
+                lw=1,
+                label=Path(p).stem,
+                color="#1f77b4",
+                zorder=3,
+            )
+            ax1.set_yscale("log")
+            ax1.set_xlabel("Bias Voltage [Volts]", fontsize=fs)
+            ax1.set_ylabel("Current [Amps]", fontsize=fs, color="#1f77b4")
+            ax1.tick_params(axis="y", labelcolor="#1f77b4", labelsize=fs)
+            ax1.tick_params(axis="x", labelsize=fs)
+            ax1.set_ylim(1e-11, 1e-3)
+            ax1.grid(True)
 
-        # Generate a dense set of x-values for a smooth plot of the fit
-        v_dense = np.linspace(xdata.min(), xdata.max(), 400)
-        # The line below was causing the artificial vertical line. We plot the real fit now.
-        v_plot = []
-        for x in v_dense:
-            if x < V0_guess_high[j]:
-                v_plot.append(x)
-        ax1.plot(
-            v_plot,
-            fit.eval(V=v_plot),
-            "-",
-            lw=2.5,
-            color="orange",
-            label=fit_legend_label,
-            zorder=4,
-            alpha=1.0,
-        )
-        ax1.axvline(
-            V0_val,
-            ls="--",
-            lw=2,
-            color="darkred",
-            label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2g} V)",
-        )
-        ax1.axvspan(
-            V0_guess_low[j],
-            V0_guess_high[j],
-            color="grey",
-            alpha=0.2,
-            label=f"Fit Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}",
-        )
+            # Generate a dense set of x-values for a smooth plot of the fit
+            v_dense = np.linspace(xdata.min(), xdata.max(), 400)
+            # The line below was causing the artificial vertical line. We plot the real fit now.
+            v_plot = []
+            for x in v_dense:
+                if x < V0_guess_high[j]:
+                    v_plot.append(x)
+            ax1.plot(
+                v_plot,
+                fit.eval(V=v_plot),
+                "-",
+                lw=2.5,
+                color="orange",
+                label=fit_legend_label,
+                zorder=4,
+                alpha=1.0,
+            )
+            ax1.axvline(
+                V0_val,
+                ls="--",
+                lw=2,
+                color="darkred",
+                label=f"Breakdown: ({V0_val:.2f} ± {V0_err:.2g} V)",
+            )
+            ax1.axvspan(
+                V0_guess_low[j],
+                V0_guess_high[j],
+                color="grey",
+                alpha=0.2,
+                label=f"Fit Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}",
+            )
 
-        # Combined legend with improved positioning
-        ax1.legend(loc="lower right", fontsize=fs - 18)
-        plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
-        plt.show()
+            # Combined legend with improved positioning
+            ax1.legend(loc="lower right", fontsize=fs - 18)
+            plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
+            plt.show()
         # figure
 
         br_list.append(V0_val)
         err_list.append(V0_err)
-    br_plot(br_list, err_list, V0_guess_low, V0_guess_high)
+    br_plot(br_list, err_list, min, low, high)
     return V0_val
 
 
@@ -604,4 +618,5 @@ else:
     fix = int(input("Enter fix: "))
     r = input("Ramp down? (y/N) ").lower() == "y"
     line = input("Baseline? (y/N) ").lower() == "y"
-    br = plot_breakdown(p, fix, r, line)
+    figure = input("Average Breakdown? (y/N) ").lower() == "y"
+    br = plot_breakdown(p, fix, r, line, figure)
