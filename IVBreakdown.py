@@ -1,14 +1,14 @@
 import numpy as np
-
+import seaborn as sns
 import uuid
 import matplotlib.pyplot as plt
 import pandas as pd
-from lmfit import Model, minimize
+from lmfit import Model
 from pathlib import Path
-from lmfit.models import ConstantModel
+from lmfit.models import ConstantModel, GaussianModel
 
 
-# --- 1. a plain Gaussian model ---
+# --- 1. a plain Gaussian model ---breakdown.pybreakdown.py
 def gaussian(x, amp, cen, sigma):
     """Amp = peak height, cen = centre, sigma = std-dev."""
     return amp * np.exp(-((x - cen) ** 2) / (2 * sigma**2))
@@ -20,7 +20,7 @@ gmodel = Model(gaussian)
 def expo_then_log(V, V0, b, A, c):
     """
     • V < V0 : baseline b
-    • V ≥ V0 : y = b * (1 + (V - V0)/K)**A
+    • V ≥ V0 : y = c * (1 + (V - V0))**A + b
 
       - initial slope on log-y axis  =  A/K
       - long-range growth            ~  A*log(V)
@@ -29,13 +29,15 @@ def expo_then_log(V, V0, b, A, c):
     return np.where(V > V0, b * np.power(V - V0, A) + c, c)
 
 
+"""
 def log(V, V0, b, A):
     return np.where(V > V0, b * np.power(V - V0, A), 0)
+"""
 
 
 def chi_log(params, V, data, weights):
     # Use your existing 'log' function as the model
-    model = log(V, **params)
+    model = expo_then_log(V, **params)
 
     # Calculate the weighted residuals. lmfit weights are 1/uncertainty.
     residual = (data - model) * weights
@@ -76,12 +78,23 @@ def sys_unc(value, is_current):
 
 
 def br_plot(volt, err, min, low, high):
-    x = list(range(0, len(volt)))
     horiz_model = ConstantModel()
+    realerr = []
+    realvolt = []
     for i in range(len(err)):
-        if err[i] == 0:
-            err[i] = 1
+        print(err[i])
+        if err[i] != 0 and err[i] < 20:
+            realerr.append(err[i])
+            realvolt.append(volt[i])
+    if len(realerr) == 0:
+        for i in range(len(err)):
+            if err[i] == 0:
+                realerr.append(1)
+                realvolt.append(volt[i])
+    err = realerr
+    volt = realvolt
 
+    x = list(range(0, len(volt)))
     avg = horiz_model.fit(volt, x=x, weights=1 / (np.asarray(err)))
     br = avg.params["c"].value
     br_err = avg.params["c"].stderr
@@ -91,16 +104,19 @@ def br_plot(volt, err, min, low, high):
 
     fit_label = (
         f"Fit: {br:.2f} ± {br_err:.2g}\n"
-        f"Average Breakdown: {np.mean(volt):.2f}\n"
+        f"Average Breakdown: {np.mean(volt):.2f} ± {np.mean(err):.2g}\n"
         f"Standard Deviation: {np.std(volt):.2g}\n"
         f"Reduced Chi Squared: {avg.redchi:2g}\n"
         f"Fit Range: {min}V to {low}V - {high}V\n"
         f"ID: {graph_id}"
     )
+
     plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
-    plt.ylabel("Volts")
-    plt.xlabel("Index")
-    plt.plot(x, y_br, label=fit_label)
+    plt.ylabel("Volts", fontsize=33)
+    plt.xlabel("Index", fontsize=33)
+    plt.tick_params(axis="y", labelsize=33)
+    plt.tick_params(axis="x", labelsize=33)
+    plt.axhline(br, color="orange", linestyle="-", label=fit_label)
     plt.errorbar(x, volt, yerr=err, fmt="o", ms=5, lw=1)
     plt.legend(loc="lower left", fontsize=33 - 18)
     plt.grid()
@@ -108,11 +124,82 @@ def br_plot(volt, err, min, low, high):
     # Residuals
 
     plt.title("Residuals", fontsize=33, pad=20)
-    plt.ylabel("Volts")
-    plt.xlabel("Index")
+    plt.ylabel("Volts", fontsize=33)
+    plt.xlabel("Index", fontsize=33)
+    plt.tick_params(axis="y", labelsize=33)
+    plt.tick_params(axis="x", labelsize=33)
     plt.plot(x, residuals, "o", ms=5, color="gray", label=f"ID: {graph_id}")
     plt.axhline(0, color="red", linestyle="--")
-    plt.legend(loc="upper left")
+    plt.legend(loc="upper left", fontsize=33 - 18)
+    plt.grid()
+    plt.show()
+    # br_hist(volt, min, low, high)
+
+
+def br_hist(volt, min, low, high, alpha=0.5):
+    fs = 33
+
+    counts, bins = np.histogram(volt, bins=100)
+
+    # ----- Gaussian fit -----
+    centers = 0.5 * (bins[:-1] + bins[1:])
+    mask = counts > 0  # ignore empty bins
+    """
+
+    gmod = GaussianModel()
+    bin_width = bins[1] - bins[0]
+    params = gmod.make_params(
+        center=centers[counts.argmax()],
+        sigma=np.std(volt),
+        amplitude=counts.sum() * bin_width,
+    )
+    result = gmod.fit(
+        counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
+    )
+    """
+
+    # ----- plot -----
+    bin_width = bins[1] - bins[0]
+    plt.bar(
+        centers,
+        counts,
+        width=bin_width,
+        alpha=alpha,
+        label=f"Breakdown Voltages:\nFit Range: {min}V to {low}V - {high}V",
+    )
+
+    """
+    x_fit = np.linspace(centers.min(), centers.max(), 400)
+    cen_err_str = (
+        f"{result.params['center'].stderr:.2g}"
+        if result.params["center"].stderr is not None
+        else "N/A"
+    )
+    sigma_err_str = (
+        f"{result.params['sigma'].stderr:.2g}"
+        if result.params["sigma"].stderr is not None
+        else "N/A"
+    )
+    plt.plot(
+        x_fit,
+        result.eval(x=x_fit),
+        "-",
+        lw=2,
+        label=(
+            f"Gaussian Fit:\n"
+            f"μ={result.params['center'].value:.3g}±{cen_err_str}\n"
+            f"σ={result.params['sigma'].value:.3g}±{sigma_err_str}\n"
+            f"Reduced Chi Sqaured: {result.redchi}"
+        ),
+    )
+    """
+
+    plt.legend(loc="upper left", fontsize=fs - 17)
+
+    plt.xlabel("Breakdown Voltage (V)", fontsize=fs)
+    plt.ylabel("Counts", fontsize=fs)
+    plt.xticks(fontsize=fs)
+    plt.yticks(fontsize=fs)
     plt.grid()
     plt.show()
 
@@ -122,6 +209,7 @@ def data(p, fix, r):
     filename = Path(p).stem
     basename = filename.split("-")
     bias = basename[1].strip("V")
+    temp = basename[2].strip("K")
     bias = float(bias)
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
@@ -187,53 +275,8 @@ def data(p, fix, r):
     num_points_down = len(V_down)
 
     if r:
-        return Vd_shape[::-1], Id_shape[::-1], num_points_down, basename
-    return V_shape, I_shape, num_points_up, basename
-
-
-def plot_hist(hist_list, max_current, alpha=0.5):
-    bins = 27
-    for p, fix in hist_list:
-        br_index = plot_breakdown(p, fix, False)
-        V, I, num_points, basename = data(p, fix)
-        if br_index is not None:
-            I = I[: br_index - 1]
-            currents = []
-            for i in range(len(I)):
-                for j in range(len(I[i])):
-                    currents.append((I[i][j]))
-
-            currents = I[:br_index].ravel()
-        else:
-            currents = I
-        currents = currents[currents <= max_current]
-
-        counts, bins = np.histogram(currents, bins=27)  # Generate histogram data
-
-        bin_midpoints = (bins[:-1] + bins[1:]) / 2  # Calculate bin midpoints
-        mean = np.sum(bin_midpoints * counts) / np.sum(counts)  # Calculate the mean
-        # --- turn the histogram into x–y points for fitting ---
-        centers = 0.5 * (bins[:-1] + bins[1:])  # x-values
-        mask = counts > 0  # skip empty bins
-
-        # --- define & fit a Gaussian with lmfit ---
-        from lmfit import Model
-
-        def gaussian(x, amp, cen, sigma):
-            return amp * np.exp(-((x - cen) ** 2) / (2 * sigma**2))
-
-        gmod = Model(gaussian)
-        params = gmod.make_params(
-            amp=counts.max(), cen=centers[counts.argmax()], sigma=np.std(currents)
-        )
-
-        result = gmod.fit(
-            counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
-        )  # 1/√N Poisson weights
-
-        # Optional: plot the histogram
-
-    plt.show()
+        return Vd_shape[::-1], Id_shape[::-1], num_points_down, basename, temp
+    return V_shape, I_shape, num_points_up, basename, temp
 
 
 def plot_hist_check(hist_list, max_current, alpha=0.5):
@@ -251,9 +294,12 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
         centers = 0.5 * (bins[:-1] + bins[1:])
         mask = counts > 0  # ignore empty bins
 
-        gmod = Model(gaussian)
+        gmod = GaussianModel()
+        bin_width = bins[1] - bins[0]
         params = gmod.make_params(
-            amp=counts.max(), cen=centers[counts.argmax()], sigma=np.std(currents)
+            center=centers[counts.argmax()],
+            sigma=np.std(currents),
+            amplitude=counts.sum() * bin_width,
         )
         result = gmod.fit(
             counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
@@ -295,7 +341,8 @@ def plot_hist_check(hist_list, max_current, alpha=0.5):
 def plot_breakdown(
     p, fix, r, line, figure, show=True, initial_window_size=25, threshold=2
 ):
-    V, I, num_points, basename = data(p, fix, r)
+    V, I, num_points, basename, temp = data(p, fix, r)
+    Vbd_guess = 0.0303 * float(temp) + 22.56
     unc_list = []
     N = []
     for row in I:
@@ -331,6 +378,7 @@ def plot_breakdown(
     y_abs_data = np.abs(ydata)
     if r:
         ydata = np.abs(ydata)
+    ydata = np.abs(ydata)
     # --- HYBRID APPROACH: Use your original chi-squared method to find the initial guess ---
 
     # 1. First, establish the baseline noise level from the initial flat part of the data.
@@ -414,7 +462,13 @@ def plot_breakdown(
 
         return xdata[-1]
 
+    """
     br_candidates = np.where(chisq_reduced >= threshold)[0]
+    if br_candidates.size > 0:
+        br_row = br_candidates[0]
+
+    """
+    br_candidates = np.where(xdata >= Vbd_guess)[0]
     if br_candidates.size > 0:
         br_row = br_candidates[0]
 
@@ -437,8 +491,9 @@ def plot_breakdown(
 
     # --- CHANGED: More flexible parameter bounds ---
     # Allow the baseline to be negative or positive, as noise can cause this.
-    params1["b"].set(value=baseline_guess * 10, vary=True, min=1e-13)
-    params1["c"].set(value=baseline_guess, vary=True, min=1e-13)
+    params1["b"].set(value=baseline_guess * 10, vary=True, min=baseline_guess)
+    params1["c"].set(value=baseline_guess, vary=False, min=1e-13)
+    # params1["c"].set(value=0, vary=False, max=0)
     # dI must be positive.
     params1["V0"].set(min=xdata.min(), max=xdata.max())
     params1["A"].set(min=0, max=50)  # Allow k to be much smaller or larger
@@ -446,8 +501,11 @@ def plot_breakdown(
     # Range
     min = xdata.min()
     max = xdata.max()
-    low = 29
-    high = 31
+    Vbd_guess = V0_guess
+    # low = max
+    # high = max
+    low = round(Vbd_guess + 3, 2)
+    high = round(Vbd_guess + 4.5, 2)
     V0_guess_low = np.random.uniform(min, min, 50)
     V0_guess_high = np.random.uniform(low, high, 50)
 
@@ -463,8 +521,6 @@ def plot_breakdown(
                 xrange.append(xdata[i])
                 yrange.append(y_abs_data[i])
                 wrange.append(weights[i])
-
-        # Then the fit is performed on the *entire* dataset:
 
         fit1 = pw_model.fit(yrange, params1, V=xrange, weights=wrange, method="leastsq")
 
@@ -482,6 +538,7 @@ def plot_breakdown(
                 wrange.append(weights[i])
                 yerr_range.append(yerr[i])
         params2 = fit1.params
+        params2["c"].set(vary=True)
         fit = pw_model.fit(yrange, params2, V=xrange, weights=wrange, method="leastsq")
 
         """
@@ -518,7 +575,7 @@ def plot_breakdown(
         c_val = params["c"].value
         c_err = params["c"].stderr if params["c"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
-        # print(fit.fit_report())
+        print(fit.fit_report())
 
         # figure
         if figure is False:
@@ -531,12 +588,11 @@ def plot_breakdown(
             else:
                 ramp = "Ramp Up"
             fit_legend_label = (
-                "Fit Model: " + r"$y(V)=c\,(V - V_{0})^{A} + b$" + "\n"
+                "Fit Model: " + r"$y(V)=c\,(V - V_{br})^{A} + b$" + "\n"
                 f"c = {b_val:.2g} ± {b_err:.1g}\n"
-                f"b (Fixed) = {c_val:.2g} ± {baseline_error:.1g}\n"
+                f"b = {c_val:.2g} ± {baseline_error:.1g}\n"
                 f"A = {A_val:.2g} ± {A_err:.1g}\n"
                 f"$\\chi^2_\\nu$ = {red_chisq:.2g}\n"
-                f"Range: {V0_guess_low[j]:.2f} - {V0_guess_high[j]:.2f}\n"
                 f"{ramp}"
             )
             # IV points with proper σ
@@ -559,13 +615,12 @@ def plot_breakdown(
             ax1.set_ylim(1e-11, 1e-3)
             ax1.grid(True)
 
-            # Generate a dense set of x-values for a smooth plot of the fit
             v_dense = np.linspace(xdata.min(), xdata.max(), 400)
-            # The line below was causing the artificial vertical line. We plot the real fit now.
             v_plot = []
             for x in v_dense:
                 if x < V0_guess_high[j]:
                     v_plot.append(x)
+
             ax1.plot(
                 v_plot,
                 fit.eval(V=v_plot),
@@ -592,7 +647,7 @@ def plot_breakdown(
             )
 
             # Combined legend with improved positioning
-            ax1.legend(loc="lower right", fontsize=fs - 18)
+            ax1.legend(loc="upper left", fontsize=fs - 18)
             plt.title(f"Breakdown of {Path(p).stem}", fontsize=33, pad=20)
             plt.show()
         # figure
