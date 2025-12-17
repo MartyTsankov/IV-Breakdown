@@ -342,7 +342,7 @@ def plot_breakdown(
     p, fix, r, line, figure, show=True, initial_window_size=25, threshold=2
 ):
     V, I, num_points, basename, temp = data(p, fix, r)
-    Vbd_guess = 0.0303 * float(temp) + 22.56
+    Vbd_guess = 3.12 * 10 ** (-5) * (float(temp)) ** 2 + 0.0163 * float(temp) + 24.09
     unc_list = []
     N = []
     for row in I:
@@ -501,11 +501,11 @@ def plot_breakdown(
     # Range
     min = xdata.min()
     max = xdata.max()
-    Vbd_guess = V0_guess
-    # low = max
-    # high = max
+    # Vbd_guess = V0_guess
+    low = max
+    high = max
     low = round(Vbd_guess + 3, 2)
-    high = round(Vbd_guess + 4.5, 2)
+    high = round(Vbd_guess + 4, 2)
     V0_guess_low = np.random.uniform(min, min, 50)
     V0_guess_high = np.random.uniform(low, high, 50)
 
