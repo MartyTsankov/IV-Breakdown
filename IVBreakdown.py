@@ -210,6 +210,8 @@ def data(p, fix, r):
     basename = filename.split("-")
     bias = basename[1].strip("V")
     temp = basename[2].strip("K")
+    Vbd_guess = 1.128 * 10 ** (-4) * (float(temp)) ** 2 + 0.0039 * float(temp) + 41.37
+    min = Vbd_guess - 3
     bias = float(bias)
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
@@ -346,7 +348,7 @@ def plot_breakdown(
     p, fix, r, line, figure, show=True, initial_window_size=25, threshold=2
 ):
     V, I, num_points, basename, temp = data(p, fix, r)
-    Vbd_guess = 3.12 * 10 ** (-5) * (float(temp)) ** 2 + 0.0163 * float(temp) + 24.09
+    Vbd_guess = 1.128 * 10 ** (-4) * (float(temp)) ** 2 + 0.0039 * float(temp) + 41.37
     unc_list = []
     N = []
     for row in I:
