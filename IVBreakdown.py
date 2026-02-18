@@ -629,7 +629,7 @@ def plot_breakdown(
 
             ax1.plot(
                 v_plot,
-                fit.eval(V=v_plot),
+                fit.eval(V=np.array(v_plot)),
                 "-",
                 lw=2.5,
                 color="orange",
