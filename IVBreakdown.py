@@ -126,10 +126,9 @@ def data(p, fix, r):
     basename = filename.split("-")
     bias = basename[1].strip("V")
     temp = basename[2].strip("K")
-    Vbd_guess = 1.128 * 10 ** (-4) * (float(temp)) ** 2 + 0.0039 * float(temp) + 41.37
-    min = Vbd_guess - 3
+    # Vbd_guess = 1.128 * 10 ** (-4) * (float(temp)) ** 2 + 0.0039 * float(temp) + 41.37
     bias = float(bias)
-    # Vbd_guess = 3.880 * 10 ** (-5) * (float(temp)) ** 2 + 0.0128 * float(temp) + 24.49
+    Vbd_guess = 3.880 * 10 ** (-5) * (float(temp)) ** 2 + 0.0128 * float(temp) + 24.49
     min = bias
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
@@ -333,10 +332,11 @@ def plot_breakdown(
         br_row = br_candidates[0]
 
     """
+    print(Vbd_guess)
     br_candidates = np.where(xdata >= Vbd_guess)[0]
     if br_candidates.size > 0:
         br_row = br_candidates[0]
-
+    print(br_row)
     baseline_fit2 = horiz_model.fit(
         y_abs_data[:br_row],
         x=xdata[:br_row],
@@ -524,20 +524,9 @@ def plot_breakdown(
     return V0_val
 
 
-hist = input("Hist? (y/N) ").lower() == "y"
-
-if hist:
-    hist_list = []
-    for i in range(int(input("How many IVs? "))):
-        p = str(input("Enter file path: "))
-        fix = int(input("Enter fix: "))
-        hist_list.append((p, fix))
-
-    plot_hist_check(hist_list, 5e-7)
-else:
-    p = str(input("Enter file path: "))
-    fix = input("Fix? (Y/n) ").lower() != "n"
-    r = input("Ramp down? (y/N) ").lower() == "y"
-    line = input("Baseline? (y/N) ").lower() == "y"
-    figure = input("Average Breakdown? (y/N) ").lower() == "y"
-    br = plot_breakdown(p, fix, r, line, figure)
+p = str(input("Enter file path: "))
+fix = input("Fix? (Y/n) ").lower() != "n"
+r = input("Ramp down? (y/N) ").lower() == "y"
+line = input("Baseline? (y/N) ").lower() == "y"
+figure = input("Average Breakdown? (y/N) ").lower() == "y"
+br = plot_breakdown(p, fix, r, line, figure)
