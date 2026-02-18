@@ -1,20 +1,10 @@
 import numpy as np
-import seaborn as sns
 import uuid
 import matplotlib.pyplot as plt
 import pandas as pd
 from lmfit import Model
+from lmfit.models import ConstantModel
 from pathlib import Path
-from lmfit.models import ConstantModel, GaussianModel
-
-
-# --- 1. a plain Gaussian model ---breakdown.pybreakdown.py
-def gaussian(x, amp, cen, sigma):
-    """Amp = peak height, cen = centre, sigma = std-dev."""
-    return amp * np.exp(-((x - cen) ** 2) / (2 * sigma**2))
-
-
-gmodel = Model(gaussian)
 
 
 def expo_then_log(V, V0, b, A, c):
@@ -27,12 +17,6 @@ def expo_then_log(V, V0, b, A, c):
     """
 
     return np.where(V > V0, b * np.power(V - V0, A) + c, c)
-
-
-"""
-def log(V, V0, b, A):
-    return np.where(V > V0, b * np.power(V - V0, A), 0)
-"""
 
 
 def chi_log(params, V, data, weights):
@@ -82,7 +66,7 @@ def br_plot(volt, err, min, low, high):
     realerr = []
     realvolt = []
     for i in range(len(err)):
-        print(err[i])
+        # print(err[i])
         if err[i] != 0 and err[i] < 20:
             realerr.append(err[i])
             realvolt.append(volt[i])
@@ -136,74 +120,6 @@ def br_plot(volt, err, min, low, high):
     # br_hist(volt, min, low, high)
 
 
-def br_hist(volt, min, low, high, alpha=0.5):
-    fs = 33
-
-    counts, bins = np.histogram(volt, bins=100)
-
-    # ----- Gaussian fit -----
-    centers = 0.5 * (bins[:-1] + bins[1:])
-    mask = counts > 0  # ignore empty bins
-    """
-
-    gmod = GaussianModel()
-    bin_width = bins[1] - bins[0]
-    params = gmod.make_params(
-        center=centers[counts.argmax()],
-        sigma=np.std(volt),
-        amplitude=counts.sum() * bin_width,
-    )
-    result = gmod.fit(
-        counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
-    )
-    """
-
-    # ----- plot -----
-    bin_width = bins[1] - bins[0]
-    plt.bar(
-        centers,
-        counts,
-        width=bin_width,
-        alpha=alpha,
-        label=f"Breakdown Voltages:\nFit Range: {min}V to {low}V - {high}V",
-    )
-
-    """
-    x_fit = np.linspace(centers.min(), centers.max(), 400)
-    cen_err_str = (
-        f"{result.params['center'].stderr:.2g}"
-        if result.params["center"].stderr is not None
-        else "N/A"
-    )
-    sigma_err_str = (
-        f"{result.params['sigma'].stderr:.2g}"
-        if result.params["sigma"].stderr is not None
-        else "N/A"
-    )
-    plt.plot(
-        x_fit,
-        result.eval(x=x_fit),
-        "-",
-        lw=2,
-        label=(
-            f"Gaussian Fit:\n"
-            f"μ={result.params['center'].value:.3g}±{cen_err_str}\n"
-            f"σ={result.params['sigma'].value:.3g}±{sigma_err_str}\n"
-            f"Reduced Chi Sqaured: {result.redchi}"
-        ),
-    )
-    """
-
-    plt.legend(loc="upper left", fontsize=fs - 17)
-
-    plt.xlabel("Breakdown Voltage (V)", fontsize=fs)
-    plt.ylabel("Counts", fontsize=fs)
-    plt.xticks(fontsize=fs)
-    plt.yticks(fontsize=fs)
-    plt.grid()
-    plt.show()
-
-
 def data(p, fix, r):
     labels = ["Date", "Time", "I_1", "I_2", "Voltage", "IDK"]
     filename = Path(p).stem
@@ -211,6 +127,8 @@ def data(p, fix, r):
     bias = basename[1].strip("V")
     temp = basename[2].strip("K")
     bias = float(bias)
+    # Vbd_guess = 3.880 * 10 ** (-5) * (float(temp)) ** 2 + 0.0128 * float(temp) + 24.49
+    min = bias
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
 
@@ -218,16 +136,21 @@ def data(p, fix, r):
     V = []
 
     for i, row in DF1.iterrows():
-        if row.iloc[2] != 0:
-            I.append(row.iloc[2])
-            V.append(row.dropna().iloc[-1])
-
+        # print(fix)
+        if fix:
+            if row.iloc[2] != 0 and row.dropna().iloc[-1] >= min - bias:
+                I.append(row.iloc[2])
+                V.append(row.dropna().iloc[-1])
+        else:
+            if row.iloc[2] != 0:
+                I.append(row.iloc[2])
+                V.append(row.dropna().iloc[-1])
     V_max = np.argmax(V)
-    V_up = np.asarray(V[fix * 10 : V_max + 1])
+    V_up = np.asarray(V[0 : V_max + 1])
     V_up += bias
     V_down = np.asarray(V[V_max:])
     V_down += bias
-    I_up = np.asarray(I[fix * 10 : V_max + 1])
+    I_up = np.asarray(I[0 : V_max + 1])
     I_down = np.asarray(I[V_max:])
 
     V_shape = []
@@ -279,70 +202,11 @@ def data(p, fix, r):
     return V_shape, I_shape, num_points_up, basename, temp
 
 
-def plot_hist_check(hist_list, max_current, alpha=0.5):
-    fs = 33
-    for p, fix in hist_list:
-        br_index = plot_breakdown(p, fix, False)
-        V, I, num_points, basename = data(p, fix)
-
-        currents = I[:br_index].ravel()
-        currents = currents[currents <= max_current]
-        currents *= 1e6
-        counts, bins = np.histogram(currents, bins=27)
-
-        # ----- Gaussian fit -----
-        centers = 0.5 * (bins[:-1] + bins[1:])
-        mask = counts > 0  # ignore empty bins
-
-        gmod = GaussianModel()
-        bin_width = bins[1] - bins[0]
-        params = gmod.make_params(
-            center=centers[counts.argmax()],
-            sigma=np.std(currents),
-            amplitude=counts.sum() * bin_width,
-        )
-        result = gmod.fit(
-            counts[mask], params, x=centers[mask], weights=1.0 / np.sqrt(counts[mask])
-        )
-
-        # ----- plot -----
-        bin_width = bins[1] - bins[0]
-        plt.bar(
-            centers,
-            counts,
-            width=bin_width,
-            alpha=alpha,
-            label=f"{basename[0]} ({basename[4]}) data",
-        )
-
-        x_fit = np.linspace(centers.min(), centers.max(), 400)
-        plt.plot(
-            x_fit,
-            result.eval(x=x_fit),
-            "-",
-            lw=2,
-            label=(
-                f"{basename[0]} ({basename[4]}) fit \n Gaussian: "
-                f"μ={result.params['cen'].value:.3g}±{result.params['cen'].stderr:.2g}\n"
-                f"σ={result.params['sigma'].value:.3g}±{result.params['sigma'].stderr:.2g}"
-            ),
-        )
-
-        plt.legend(loc="upper left", fontsize=fs - 17)
-
-    plt.xlabel("Current (μ Amps)", fontsize=fs)
-    plt.ylabel("Counts", fontsize=fs)
-    plt.xticks(fontsize=fs)
-    plt.yticks(fontsize=fs)
-    plt.grid()
-    plt.show()
-
-
 def plot_breakdown(
     p, fix, r, line, figure, show=True, initial_window_size=25, threshold=2
 ):
     V, I, num_points, basename, temp = data(p, fix, r)
-    Vbd_guess = 3.12 * 10 ** (-5) * (float(temp)) ** 2 + 0.0163 * float(temp) + 24.09
+    Vbd_guess = 3.880 * 10 ** (-5) * (float(temp)) ** 2 + 0.0128 * float(temp) + 24.49
     unc_list = []
     N = []
     for row in I:
@@ -502,9 +366,10 @@ def plot_breakdown(
     min = xdata.min()
     max = xdata.max()
     # Vbd_guess = V0_guess
-    low = max
-    high = max
-    low = round(Vbd_guess + 3, 2)
+    # low = max
+    # high = max
+    print(Vbd_guess)
+    low = round(Vbd_guess + 2.5, 2)
     high = round(Vbd_guess + 4, 2)
     V0_guess_low = np.random.uniform(min, min, 50)
     V0_guess_high = np.random.uniform(low, high, 50)
@@ -575,7 +440,7 @@ def plot_breakdown(
         c_val = params["c"].value
         c_err = params["c"].stderr if params["c"].stderr is not None else 0.0
         red_chisq = red_chisq_stat
-        print(fit.fit_report())
+        # print(fit.fit_report())
 
         # figure
         if figure is False:
@@ -658,20 +523,9 @@ def plot_breakdown(
     return V0_val
 
 
-hist = input("Hist? (y/N) ").lower() == "y"
-
-if hist:
-    hist_list = []
-    for i in range(int(input("How many IVs? "))):
-        p = str(input("Enter file path: "))
-        fix = int(input("Enter fix: "))
-        hist_list.append((p, fix))
-
-    plot_hist_check(hist_list, 5e-7)
-else:
-    p = str(input("Enter file path: "))
-    fix = int(input("Enter fix: "))
-    r = input("Ramp down? (y/N) ").lower() == "y"
-    line = input("Baseline? (y/N) ").lower() == "y"
-    figure = input("Average Breakdown? (y/N) ").lower() == "y"
-    br = plot_breakdown(p, fix, r, line, figure)
+p = str(input("Enter file path: "))
+fix = input("Fix? (Y/n) ").lower() != "n"
+r = input("Ramp down? (y/N) ").lower() == "y"
+line = input("Baseline? (y/N) ").lower() == "y"
+figure = input("Average Breakdown? (y/N) ").lower() == "y"
+br = plot_breakdown(p, fix, r, line, figure)
