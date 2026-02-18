@@ -213,14 +213,18 @@ def data(p, fix, r):
     bias = float(bias)
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
-
     I = []
     V = []
-
     for i, row in DF1.iterrows():
-        if row.iloc[2] != 0:
-            I.append(row.iloc[2])
-            V.append(row.dropna().iloc[-1])
+        # print(fix)
+        if fix:
+            if row.iloc[2] != 0 and row.dropna().iloc[-1] >= min - bias:
+                I.append(row.iloc[2])
+                V.append(row.dropna().iloc[-1])
+        else:
+            if row.iloc[2] != 0:
+                I.append(row.iloc[2])
+                V.append(row.dropna().iloc[-1])
 
     V_max = np.argmax(V)
     V_up = np.asarray(V[0 : V_max + 1])
