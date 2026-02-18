@@ -126,15 +126,15 @@ def data(p, fix, r):
     basename = filename.split("-")
     bias = basename[1].strip("V")
     temp = basename[2].strip("K")
+    Vbd_guess = 1.128 * 10 ** (-4) * (float(temp)) ** 2 + 0.0039 * float(temp) + 41.37
+    min = Vbd_guess - 3
     bias = float(bias)
     # Vbd_guess = 3.880 * 10 ** (-5) * (float(temp)) ** 2 + 0.0128 * float(temp) + 24.49
     min = bias
 
     DF1 = pd.read_csv(p, names=labels, sep="\\s+")
-
     I = []
     V = []
-
     for i, row in DF1.iterrows():
         # print(fix)
         if fix:
@@ -145,6 +145,7 @@ def data(p, fix, r):
             if row.iloc[2] != 0:
                 I.append(row.iloc[2])
                 V.append(row.dropna().iloc[-1])
+
     V_max = np.argmax(V)
     V_up = np.asarray(V[0 : V_max + 1])
     V_up += bias
@@ -488,7 +489,7 @@ def plot_breakdown(
 
             ax1.plot(
                 v_plot,
-                fit.eval(V=v_plot),
+                fit.eval(V=np.array(v_plot)),
                 "-",
                 lw=2.5,
                 color="orange",
@@ -523,9 +524,20 @@ def plot_breakdown(
     return V0_val
 
 
-p = str(input("Enter file path: "))
-fix = input("Fix? (Y/n) ").lower() != "n"
-r = input("Ramp down? (y/N) ").lower() == "y"
-line = input("Baseline? (y/N) ").lower() == "y"
-figure = input("Average Breakdown? (y/N) ").lower() == "y"
-br = plot_breakdown(p, fix, r, line, figure)
+hist = input("Hist? (y/N) ").lower() == "y"
+
+if hist:
+    hist_list = []
+    for i in range(int(input("How many IVs? "))):
+        p = str(input("Enter file path: "))
+        fix = int(input("Enter fix: "))
+        hist_list.append((p, fix))
+
+    plot_hist_check(hist_list, 5e-7)
+else:
+    p = str(input("Enter file path: "))
+    fix = input("Fix? (Y/n) ").lower() != "n"
+    r = input("Ramp down? (y/N) ").lower() == "y"
+    line = input("Baseline? (y/N) ").lower() == "y"
+    figure = input("Average Breakdown? (y/N) ").lower() == "y"
+    br = plot_breakdown(p, fix, r, line, figure)
