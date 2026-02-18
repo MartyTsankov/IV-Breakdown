@@ -223,11 +223,11 @@ def data(p, fix, r):
             V.append(row.dropna().iloc[-1])
 
     V_max = np.argmax(V)
-    V_up = np.asarray(V[fix * 10 : V_max + 1])
+    V_up = np.asarray(V[0 : V_max + 1])
     V_up += bias
     V_down = np.asarray(V[V_max:])
     V_down += bias
-    I_up = np.asarray(I[fix * 10 : V_max + 1])
+    I_up = np.asarray(I[0 : V_max + 1])
     I_down = np.asarray(I[V_max:])
 
     V_shape = []
@@ -670,7 +670,7 @@ if hist:
     plot_hist_check(hist_list, 5e-7)
 else:
     p = str(input("Enter file path: "))
-    fix = int(input("Enter fix: "))
+    fix = input("Fix? (Y/n) ").lower() != "n"
     r = input("Ramp down? (y/N) ").lower() == "y"
     line = input("Baseline? (y/N) ").lower() == "y"
     figure = input("Average Breakdown? (y/N) ").lower() == "y"
